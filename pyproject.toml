@@ -1,0 +1,10 @@
+[project]
+name = "automatic-solution-generator"
+version = "0.1.0"
+requires-python = ">=3.14"
+dependencies = [
+    "pyyaml>=6.0",
+    "requests>=2.0",
+    "curlify>= 3.0",
+    "waiting>=1.0.0"
+]
