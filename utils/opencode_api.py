@@ -173,12 +173,13 @@ class OpencodeAPI:
                 json=payload,
                 auth=self.get_basic_auth()
             )
-            self.logger.log(
-                logging.INFO,
-                f"Sent prompt: {curlify.to_curl(response.request)}"
-            )
-            response.raise_for_status()
-            return_value = response.json()
+            if response.status_code == 200:
+                return_value = response.json()
+            else:
+                self.logger.log(
+                    logging.ERROR,
+                    f"Sending prompt: {response.text}"
+                )
         except Exception as e:
             self.logger.log(
                 logging.ERROR,
