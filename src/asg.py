@@ -1,6 +1,7 @@
 import json
 import logging
 import os
+from time import sleep
 
 from utils.log_utils import LogUtils
 from utils.opencode_api import OpencodeAPI
@@ -38,6 +39,8 @@ class AutomaticSolutionGenerator:
         return self.opencode_api.get_health()
 
     def save_opencode_openapi(self, output):
+        if not os.path.exists("openapi"):
+            os.makedirs("openapi")
         openapi = self.opencode_api.get_openapi()
         with open(output, "w") as f:
             json.dump(openapi, f, indent=4)
@@ -48,10 +51,6 @@ class AutomaticSolutionGenerator:
             if not agent["hidden"] and agent["mode"] == "primary" and agent["id"] not in ["build", "plan"]:
                 return_value.append(agent)
         return return_value
-
-    def load_requirements(self):
-        with open(self.config["project_requirements"], "r") as f:
-            self.requirements = f.read()
 
     def get_model_dict(self):
         model_string = self.config["model"]
@@ -69,22 +68,77 @@ class AutomaticSolutionGenerator:
                 return_value = agent
         return return_value
 
+    def get_requirements_analysis(self):
+        return_value = f"Create PRD from interview in: {self.config['customer_interview']}"
+        return_value += f" Save the PRD in: {self.config['project_path']}/prd.md"
+        return return_value
+
+    def get_customer_interview(self):
+        return_value = ""
+        if "customer_interview" in self.config:
+            try:
+                abs_path = os.path.abspath(self.config["customer_interview"])
+                return_value = abs_path
+            except Exception as e:
+                self.logger.log(
+                    logging.ERROR,
+                    f"Failed to get customer interview: {e}"
+                )
+        return return_value
+
     def generate_solution(self):
         if self.is_opencode_running():
             config = self.opencode_api.get_config()
             self.logger.save_dict("config", config)
             if not os.path.exists(self.config["project_path"]):
                 os.makedirs(self.config["project_path"])
-            self.load_requirements()
             self.save_opencode_openapi("openapi/opencode.json")
             self.agents = self.opencode_api.get_agents()
             project_finished = False
             iteration = 0
-            while not project_finished:
-                self.logger.log(logging.INFO, f"Starting iteration {iteration}")
-                # TODO
-                self.logger.log(logging.INFO, f"Finished iteration {iteration}")
-                iteration += 1
-
+            requirements_analysis = self.get_requirements_analysis()
+            self.process(
+                "product-manager",
+                iteration,
+                requirements_analysis,
+                [self.get_customer_interview()]
+            )
+            # while not project_finished:
+            #     self.logger.log(logging.INFO, f"Starting iteration {iteration}")
+            #     self.logger.log(logging.INFO, f"Finished iteration {iteration}")
+            #     iteration += 1
         else:
             self.logger.log(logging.ERROR, "Opencode is not running")
+
+    def process(self, agent, iteration, prompt, files):
+        session = self.opencode_api.get_session(
+            agent,
+            self.get_model_dict(),
+            self.project_path
+        )
+        if session:
+            success = self.opencode_api.send_prompt(
+                session=session,
+                message=prompt,
+                files=files
+            )
+
+            if success:
+                self.logger.log(
+                    logging.INFO,
+                    f"agent {agent} iteration {iteration} prompt {prompt[0:100]}"
+                )
+                # Wait for session completion
+                self.opencode_api.wait_session(session)
+
+                # Retrieve and log session messages
+                session_messages = self.opencode_api.get_session_messages(session)
+                if session_messages and "data" in session_messages:
+                    for message in session_messages["data"]:
+                        self.logger.log(logging.INFO, f"Message {message['id']}: {message}")
+                        self.logger.save_dict(message["id"], message)
+                self.logger.log(logging.INFO, f"Session completed for agent {agent}")
+            else:
+                self.logger.log(logging.ERROR, f"Failed to execute command for agent {agent}")
+        else:
+            self.logger.log(logging.ERROR, f"Failed to create session for agent {agent}")

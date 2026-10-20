@@ -1,5 +1,7 @@
 import logging
 import time
+
+import curlify
 import requests
 
 from requests.auth import HTTPBasicAuth
@@ -160,7 +162,7 @@ class OpencodeAPI:
                 for file in files:
                     payload["files"].append(
                         {
-                            "uri": file
+                            "uri": "file://" + file
                         }
                     )
             headers = self.get_headers()
@@ -170,6 +172,10 @@ class OpencodeAPI:
                 headers=headers,
                 json=payload,
                 auth=self.get_basic_auth()
+            )
+            self.logger.log(
+                logging.INFO,
+                f"Sent prompt: {curlify.to_curl(response.request)}"
             )
             response.raise_for_status()
             return_value = response.json()
