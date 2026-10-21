@@ -76,7 +76,6 @@ class AutomaticSolutionGenerator:
     def get_generate_tasks(self):
         return_value = f"Analyze PRD at {self.config['project_path']}/prd.md and create all tasks using the create-ticket skill"
         return_value += f". Each task must be saved as a separate markdown file in the {self.config['project_path']}/tasks/ directory"
-        return_value += f". Use the skill: .opencode/skills/create-ticket/SKILL.md"
         return_value += f". If previous tasks exist, do not create tasks that have already been created"
         return return_value
 
