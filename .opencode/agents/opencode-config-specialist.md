@@ -334,6 +334,7 @@ export OPENDCODE_SMALL_MODEL="claude-haiku-4-5"
 2. Define description and purpose
 3. Select permissions
 4. Agent markdown file created in `.opencode/agents/`
+5. Agent automatically registered in `.opencode/opencode.json`
 
 Example (model-agnostic):
 ```bash
@@ -342,10 +343,22 @@ export OPENDCODE_MODEL="your-provider/your-model"
 export OPENDCODE_PROVIDER_ID="your-provider"
 ```
 
-```bash
-# Add to opencode.json
-opencode mcp auth server-name
+#### Configuration File Location
+
+**Recommended structure:**
 ```
+.opencode/
+├── opencode.json     # All configuration in one place
+├── agents/           # Agent definitions
+├── skills/           # Skill definitions
+└── commands/         # Command definitions
+```
+
+**Why `.opencode/opencode.json` recommended:**
+- Everything organized in one directory
+- Easier to manage permissions and access
+- Consistent with OpenCode conventions
+- Clear separation from source code
 
 #### Customizing Theme
 
@@ -408,3 +421,56 @@ This agent can:
 - Show **multiple options** when applicable
 - Validate **schema compliance**
 - Offer **troubleshooting steps** where relevant
+
+---
+
+## Lessons Learned & Best Practices
+
+### Agent Naming
+
+- **Prefer generic over specific names**: Use `backend-developer` instead of `python-developer` to avoid language locking
+- **Use domain-focused names**: Names should reflect the role, not the technology stack
+- **Consider future flexibility**: Projects may change tech stacks; generic names accommodate this
+
+### Skills vs. Agents
+
+- **Avoid redundant skills**: If an agent already has all the knowledge in its definition, a separate skill may be unnecessary
+- **Use skills for shared functionality**: Skills are valuable when multiple agents need the same capability
+- **Keep skills focused**: A skill should have one clear responsibility
+- **Default preference**: Prefer agent definitions unless the functionality is reusable across multiple agents
+
+### Configuration Organization
+
+- **Consolidate in `.opencode/`**: Keep all configuration files inside the `.opencode/` directory
+- **Single config file**: Merge all settings into `.opencode/opencode.json` rather than spreading across multiple files
+- **Clear structure**: Organize files logically within `.opencode/` (agents/, skills/, commands/)
+
+### Ticket Management
+
+- **Target project directory**: Tickets should be created in `[project_path]/tasks/`, not necessarily the current working directory
+- **Hierarchical structure**: Use Epics → Stories → Tasks → Subtasks for proper organization
+- **Evidence-based closure**: Only mark tickets complete when sufficient evidence is provided
+- **Consistent naming**: Use `TYPE-ID-description.md` format (e.g., `STORY-001-user-auth.md`)
+
+### Permission Design
+
+- **Subagents need edit permissions**: Agents that create files need `edit: allow`
+- **Use `ask` for web access**: Web search and fetch should require user approval by default
+- **Keep permissions minimal**: Only grant access to tools that are actually needed
+
+### Common Agent Roles
+
+When setting up a multi-agent system, consider these standard roles:
+
+| Role | Mode | Purpose |
+|------|------|---------|
+| Project Manager | primary | PRD analysis, task hierarchy, prioritization |
+| Product Owner | subagent | Backlog management, acceptance criteria |
+| Business Analyst | subagent | Requirements analysis, edge cases |
+| Software Architect | subagent | System design, technical decisions |
+| Backend Developer | subagent | Server-side logic, APIs, databases |
+| Web Developer | subagent | Frontend, UI, client-side code |
+| DevOps Engineer | subagent | Infrastructure, CI/CD, deployment |
+| QA Automation | subagent | Automated testing |
+| QA Manual | subagent | Functional testing, UX verification |
+| UI Designer | subagent | Visual design, design systems |

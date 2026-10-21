@@ -73,6 +73,13 @@ class AutomaticSolutionGenerator:
         return_value += f" Save the PRD in: {self.config['project_path']}/prd.md"
         return return_value
 
+    def get_generate_tasks(self):
+        return_value = f"Analyze PRD at {self.config['project_path']}/prd.md and create all tasks using the create-ticket skill"
+        return_value += f". Each task must be saved as a separate markdown file in the {self.config['project_path']}/tasks/ directory"
+        return_value += f". Use the skill: .opencode/skills/create-ticket/SKILL.md"
+        return_value += f". If previous tasks exist, do not create tasks that have already been created"
+        return return_value
+
     def get_customer_interview(self):
         return_value = ""
         if "customer_interview" in self.config:
@@ -102,6 +109,15 @@ class AutomaticSolutionGenerator:
                 iteration,
                 requirements_analysis,
                 [self.get_customer_interview()]
+            )
+            # Project Manager genera las tareas desde el PRD
+            tasks_prompt = self.get_generate_tasks()
+            prd_abs_path = os.path.abspath(self.config['project_path'] + "/prd.md")
+            self.process(
+                "project-manager",
+                iteration,
+                tasks_prompt,
+                [prd_abs_path]
             )
             # while not project_finished:
             #     self.logger.log(logging.INFO, f"Starting iteration {iteration}")

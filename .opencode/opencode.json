@@ -35,6 +35,181 @@
         "websearch": "allow",
         "question": "allow"
       }
+    },
+    "project-manager": {
+      "description": "Project Manager for PRD analysis and hierarchical task management",
+      "mode": "primary",
+      "temperature": 0.1,
+      "steps": 15,
+      "color": "#FF9800",
+      "permission": {
+        "edit": "allow",
+        "bash": "allow",
+        "read": "allow",
+        "skill": "allow",
+        "glob": "allow",
+        "grep": "allow",
+        "webfetch": "ask",
+        "websearch": "ask",
+        "question": "allow"
+      }
+    },
+    "software-architect": {
+      "description": "Software Architect for system design, technical decisions, and architecture guidelines",
+      "mode": "subagent",
+      "temperature": 0.1,
+      "steps": 15,
+      "color": "#3F51B5",
+      "permission": {
+        "edit": "allow",
+        "bash": "ask",
+        "read": "allow",
+        "skill": "allow",
+        "glob": "allow",
+        "grep": "allow"
+      }
+    },
+    "backend-developer": {
+      "description": "Backend Developer for server-side implementation, APIs, databases, and business logic",
+      "mode": "subagent",
+      "temperature": 0.1,
+      "steps": 10,
+      "color": "#4CAF50",
+      "permission": {
+        "edit": "allow",
+        "bash": "allow",
+        "read": "allow",
+        "skill": "allow",
+        "glob": "allow",
+        "grep": "allow"
+      }
+    },
+    "web-developer": {
+      "description": "Web Developer for frontend development, UI, client-side logic, and accessibility",
+      "mode": "subagent",
+      "temperature": 0.1,
+      "steps": 10,
+      "color": "#2196F3",
+      "permission": {
+        "edit": "allow",
+        "bash": "allow",
+        "read": "allow",
+        "skill": "allow",
+        "glob": "allow",
+        "grep": "allow"
+      }
+    },
+    "devops-engineer": {
+      "description": "DevOps Engineer for infrastructure, CI/CD pipelines, deployment, and cloud operations",
+      "mode": "subagent",
+      "temperature": 0.1,
+      "steps": 15,
+      "color": "#00BCD4",
+      "permission": {
+        "edit": "allow",
+        "bash": "allow",
+        "read": "allow",
+        "skill": "allow",
+        "glob": "allow",
+        "grep": "allow"
+      }
+    },
+    "qa-automation": {
+      "description": "QA Automation Engineer for automated testing, test frameworks, and CI/CD integration",
+      "mode": "subagent",
+      "temperature": 0.1,
+      "steps": 10,
+      "color": "#E91E63",
+      "permission": {
+        "edit": "allow",
+        "bash": "allow",
+        "read": "allow",
+        "skill": "allow",
+        "glob": "allow",
+        "grep": "allow"
+      }
+    },
+    "qa-manual": {
+      "description": "Manual QA Specialist for functional testing, UX verification, and exploratory testing",
+      "mode": "subagent",
+      "temperature": 0.1,
+      "steps": 10,
+      "color": "#9C27B0",
+      "permission": {
+        "edit": "allow",
+        "bash": "allow",
+        "read": "allow",
+        "skill": "allow",
+        "glob": "allow",
+        "grep": "allow"
+      }
+    },
+    "product-owner": {
+      "description": "Product Owner for backlog management, acceptance criteria, and sprint planning",
+      "mode": "subagent",
+      "temperature": 0.1,
+      "steps": 10,
+      "color": "#795548",
+      "permission": {
+        "edit": "allow",
+        "bash": "allow",
+        "read": "allow",
+        "skill": "allow",
+        "glob": "allow",
+        "grep": "allow"
+      }
+    },
+    "business-analyst": {
+      "description": "Business Analyst for detailed functional specifications, domain analysis, and edge case definition",
+      "mode": "subagent",
+      "temperature": 0.1,
+      "steps": 10,
+      "color": "#607D8B",
+      "permission": {
+        "edit": "allow",
+        "bash": "allow",
+        "read": "allow",
+        "skill": "allow",
+        "glob": "allow",
+        "grep": "allow"
+      }
+    },
+    "ui-designer": {
+      "description": "UI Designer for visual design, design systems, and component creation",
+      "mode": "subagent",
+      "temperature": 0.1,
+      "steps": 10,
+      "color": "#E91E63",
+      "permission": {
+        "edit": "allow",
+        "bash": "allow",
+        "read": "allow",
+        "skill": "allow",
+        "glob": "allow",
+        "grep": "allow"
+      }
+    }
+  },
+  "skill": {
+    "create-ticket": {
+      "enabled": true
+    }
+  },
+  "command": {
+    "analyze-prd": {
+      "description": "Analyze a PRD and create hierarchical tickets",
+      "template": "Analyze the PRD document at $1 and create all hierarchical tickets in the target project directory",
+      "agent": "project-manager"
+    },
+    "create-epic": {
+      "description": "Create an epic and its child stories",
+      "template": "Create an epic for $1 with associated stories and tasks",
+      "agent": "project-manager"
+    },
+    "review-completed": {
+      "description": "Review and close completed tickets with evidence",
+      "template": "Review all completed tickets in the tasks directory and close those with sufficient evidence",
+      "agent": "project-manager"
     }
   }
 }
