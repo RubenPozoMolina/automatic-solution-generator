@@ -148,7 +148,7 @@ The main API client with the following methods:
 Main orchestrator class that:
 - Validates OpenCode connection
 - Loads project requirements
-- Manages iteration cycles
+- Manages sprint cycles
 - Coordinates agent interactions
 
 ### `LogUtils` Class

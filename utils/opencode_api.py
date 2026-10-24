@@ -221,6 +221,11 @@ class OpencodeAPI:
             )
             if response.status_code == 204:
                 return_value = True
+            else:
+                self.logger.log(
+                    logging.WARNING,
+                    f"Session wait returned {response.status_code}: {response.text}"
+                )
         except Exception as e:
             self.logger.log(
                 logging.ERROR,

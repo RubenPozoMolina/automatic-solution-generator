@@ -1,20 +1,20 @@
 ---
 description: Product Manager agent for requirements, user stories, roadmap planning, and product strategy
 mode: primary
-model: "{env:OPENDCODE_MODEL}"
+model: "{env:OPENCODE_MODEL}"
 temperature: 0.7
-steps: 15
+steps: 25
 color: "#9C27B0"
 permission:
   edit: allow
-  bash: ask
+  bash: deny
   read: allow
   skill: allow
   glob: allow
   grep: allow
   webfetch: allow
   websearch: allow
-  question: allow
+  question: deny
 ---
 
 # Product Manager Agent

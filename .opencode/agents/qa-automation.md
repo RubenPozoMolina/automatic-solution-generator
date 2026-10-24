@@ -173,3 +173,19 @@ When automated tests find bugs:
 - Do NOT test private implementation details
 - Keep test data separated from production
 - Regularly review and refactor tests
+
+## Ticket Protocol (orchestrated runs)
+
+When the orchestrator sends you a ticket, its prompt is the source of truth:
+
+1. Read the ticket JSON and follow the `ticket-workflow` skill. Work only on the **current
+   phase** of the ticket; the next phase happens in a later sprint.
+2. You have a limited number of steps. Reserve the last ones to edit the ticket JSON and write:
+   - `result`: the outcome of your phase (see below)
+   - `resultEvidence`: list of evidence (changed files, commands run, test reports)
+3. Only write a `result` when your phase is really finished. If it is not, add your progress to
+   `resultEvidence` without `result`; the ticket continues in the next sprint.
+4. Do **not** edit `status`, `assignee` or `statusHistory`: the orchestrator applies the
+   transition and records the history.
+
+Results for your phase: `passed` when every acceptance criterion is verified (the orchestrator then closes the ticket), `failed` when any criterion fails (describe the failure in `resultEvidence`), `blocked` when the environment prevents testing.

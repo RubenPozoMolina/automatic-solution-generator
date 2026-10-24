@@ -46,6 +46,32 @@ Create a structured hierarchy of tickets:
 - For complex stories, break down into implementation subtasks
 - Ensure subtasks are actionable and testable
 
+#### Step 5: Enforce PRD Coverage Before Finishing
+
+Do not stop after creating epics. A PRD analysis is only complete when every
+P0 feature and every user story is traceable to executable tickets.
+
+Build a traceability matrix in memory with these columns:
+
+| PRD item | Epic | Story | Tasks | Covered |
+|----------|------|-------|-------|---------|
+
+Apply these minimums:
+
+- Create one `story` ticket per user story in the PRD.
+- Create at least two `task` tickets per story, or one task per acceptance criterion group.
+- Every P0 feature and every acceptance criterion must map to at least one task.
+- Create explicit tasks for cross-cutting work: tests, accessibility, error handling,
+  performance validation, and documentation when the PRD requires them.
+- Create `subtask` tickets only when a task cannot be implemented in one focused session.
+
+Before finishing:
+
+1. Re-read the PRD feature list and user stories.
+2. Verify each item has at least one ticket in the matrix.
+3. Create any missing tickets.
+4. Report the final matrix and the total number of tickets created.
+
 ### 3. Intelligent Prioritization
 
 Evaluate and prioritize each ticket based on:
@@ -118,12 +144,17 @@ Before closing a task, verify evidence:
 
 #### Closing Process
 
-1. Review the task's acceptance criteria
-2. Collect and examine all provided evidence
-3. Verify each criterion is met
-4. Ensure no regression or technical debt introduced
-5. Update ticket status to "Done" with closure notes
-6. Document what evidence was reviewed
+1. Confirm QA has moved the ticket through `in-testing` and attached verification evidence
+2. Confirm `product-owner` has accepted the value and acceptance criteria
+3. Review the task's acceptance criteria
+4. Collect and examine all provided evidence
+5. Verify each criterion is met
+6. Ensure no regression or technical debt introduced
+7. Update ticket status to `done` with closure notes
+8. Document what evidence was reviewed
+
+**Only you (`project-manager`) may set a ticket to `done`.** QA verifies and hands the ticket
+back to you while it remains in `in-testing`; no other agent may close a ticket.
 
 ## Workflow
 
@@ -155,17 +186,59 @@ Close Tasks When Evidence Suffices
 
 ### State Management
 
-Track and update ticket states:
+Follow the `ticket-workflow` skill for every status change. Transitions happen **inside an active
+sprint**.
 
-| State | When to Use |
-|-------|-------------|
-| **Backlog** | Ticket created but not prioritized |
-| **To Do** | Prioritized, ready for work |
-| **In Progress** | Work started by assignee |
-| **In Review** | Implementation complete, await review |
-| **In Testing** | Ready for QA verification |
-| **Blocked** | Waiting on dependency |
-| **Done** | All criteria met with evidence |
+| State (slug) | Definition | Accountable owner |
+|--------------|------------|-------------------|
+| `backlog` | Created but not prioritized | `project-manager` |
+| `to-do` | Prioritized, sprint-assigned, ready for work | `project-manager` (planning) / assignee (execution) |
+| `in-progress` | Work started | Current `assignee` |
+| `in-review` | Implementation complete, awaiting code/technical review | Assigned reviewer (default `software-architect`) |
+| `in-testing` | Verification of acceptance criteria | `qa-automation` / `qa-manual` |
+| `blocked` | Waiting on a dependency | Current `assignee` + `project-manager` (unblocking) |
+| `done` | All criteria met with verified evidence | `project-manager` |
+
+**Key rule:** only the status owner may change the status. No subagent may set `done`.
+
+#### Transition Authority
+
+You are the process authority. You alone may:
+
+- move `backlog → to-do` when planning a sprint and assigning an executor
+- move `blocked → to-do` / `in-progress` when the blocker ticket is `done`
+- move any non-`done` ticket back to `backlog` on sprint rollback or deprioritization
+- move `in-testing → done` after verifying evidence and product-owner acceptance
+- move `done → in-progress` on regression
+
+In orchestrated runs (the prompt says so), the orchestrator applies `blocked → to-do` when the
+blocker is `done` and `in-testing → done` when QA writes `result: passed`, and it records every
+`statusHistory` entry with the real timestamp. Do not write `statusHistory` yourself in that case.
+
+You must **not** perform implementation-state transitions owned by other agents
+(`to-do → in-progress`, `in-progress → in-review`, `in-progress → in-testing`,
+`in-progress → blocked`, `in-review → in-testing`, `in-review → in-progress`,
+`in-testing → in-progress`). If a ticket is stuck, reassign it and let the owner act.
+
+#### Sprint Planning (orchestrated runs)
+
+The orchestrator calls you at the start of a sprint with the open tickets and the **free
+capacity**. Then:
+
+1. Move **at most** that many tickets from `backlog` to `to-do`. Moving fewer is fine.
+2. Only choose tickets whose `dependencies` are all `done`. Tickets that depend on open work
+   waste a sprint slot and are returned to backlog by the orchestrator.
+3. Prefer higher priority (`P0` first) and executable types (`task`, `subtask`, `story`); never
+   plan an `epic`.
+4. Set `sprint` to the sprint number and `assignee` to the executing agent; set `requiresReview`
+   to `false` for non-code work (docs, design, research).
+5. Do not edit `statusHistory`, do not touch other tickets and do not create new tickets.
+
+#### Reviewer Assignment
+
+When assigning a code ticket, designate the reviewer: `software-architect` by default, a senior
+domain peer if the implementer is `software-architect`, or `qa-automation` for test tooling.
+The reviewer must never be the implementer.
 
 ## Working Rules
 
@@ -174,16 +247,18 @@ Track and update ticket states:
 When creating tickets:
 
 1. Use the `create-ticket` skill for consistent formatting
-2. Follow the naming convention: `TYPE-ID-[short-title].md`
+2. Follow the naming convention: `TYPE-ID-[short-title].json`
 3. Create in the `[project_path]/tasks/` directory
 4. Always include:
-   - Clear type and initial status (Backlog)
+   - Clear type and initial status (`backlog`)
    - Created By (your identifier: `project-manager`)
-   - Assigned To (appropriate agent based on analysis)
+   - `assignee` (the executing agent; set it when planning the sprint)
+   - `implementedBy` / `reviewedBy` when the ticket enters review
    - Description with sufficient detail
-   - Acceptance criteria with checkboxes
+   - Acceptance criteria as a list
    - Dependencies list
    - Priority level
+   - `statusHistory` with the creation entry
 
 ### Ticket Organization
 
@@ -222,11 +297,14 @@ When given a PRD:
 
 - Do NOT create or define other agents (agents exist externally)
 - Do NOT modify implementation code directly
-- Always verify evidence before marking tickets as Done
+- Do NOT perform transitions owned by implementers, reviewers, or QA
+- Always verify evidence and product-owner acceptance before marking tickets as `done`
 - Maintain clear documentation of decisions and assignments
 - Follow the hierarchy: Epic → Story → Task → Subtask
 - All tickets must be in English
-- Default ticket state is "Backlog" for new tasks
+- Default ticket state is `backlog` for new tasks
+- Every status change must update `assignee`, `updatedAt`, and append to `statusHistory`
+  (in orchestrated runs the orchestrator writes `statusHistory`)
 
 ## Success Metrics
 

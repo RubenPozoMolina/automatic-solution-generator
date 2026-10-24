@@ -1,159 +1,639 @@
 import json
 import logging
 import os
-from time import sleep
+from typing import Any, Callable, Iterable, Optional
 
+from src.errors import SolutionGenerationError
+from src.sprint_planner import SprintPlanner
+from src.ticket_repository import TicketRepository
+from src.ticket_status import (
+    STATUS_BLOCKED,
+    STATUS_TO_DO,
+    is_closed,
+    is_pending,
+    is_to_do,
+    normalize_status,
+)
+from src.ticket_workflow import TicketWorkflow
 from utils.log_utils import LogUtils
 from utils.opencode_api import OpencodeAPI
 
+MODEL_REFERENCE_SEPARATOR = "/"
+PRD_FILE_NAME = "prd.md"
+TASKS_DIRECTORY_NAME = "tasks"
+DEFAULT_TASKS_PER_SPRINT = 5
+SESSION_FAILURE_FINISH = "error"
+SESSION_FAILURE_OUTCOME = "failed"
+DEFAULT_MAX_STALLED_SPRINTS = 3
+PROJECT_MANAGER_AGENT = "project-manager"
+DEFAULT_GENERATION_FOLLOW_UPS = 2
+TICKET_RESULT_FOLLOW_UPS = 1
+WRITE_TOOL_HINT = "with the `write` tool (arguments: `path`, `content`)"
+
 
 class AutomaticSolutionGenerator:
-    config = None
-    logger = None
-    opencode_api = None
-    agents = None
-    requirements = None
-    project_path = None
 
-    def __init__(self, config, logger: LogUtils):
+    def __init__(self, config: dict[str, Any], logger: LogUtils):
         self.config = config
         self.logger = logger
-        self.load_opencode_api()
-        self.project_path = os.path.abspath(self.config["project_path"])
+        self.opencode_api: OpencodeAPI = self._create_opencode_api()
+        self.agents: dict[str, Any] = {}
+        self.project_path = os.path.abspath(str(config["project_path"]))
+        self.ticket_repository = TicketRepository(self.get_tasks_path(), logger)
+        self.ticket_workflow = TicketWorkflow()
+        self.sprint_planner = SprintPlanner(
+            self.ticket_repository,
+            int(config.get("tasks_per_sprint", DEFAULT_TASKS_PER_SPRINT)),
+            logger,
+            self.ticket_workflow
+        )
+        self.max_stalled_sprints = int(
+            config.get("max_stalled_sprints", DEFAULT_MAX_STALLED_SPRINTS)
+        )
+        self.generation_follow_ups = int(
+            config.get("generation_follow_ups", DEFAULT_GENERATION_FOLLOW_UPS)
+        )
 
-    def load_opencode_api(self):
+    def _create_opencode_api(self) -> OpencodeAPI:
         try:
-            self.opencode_api = OpencodeAPI(
+            return OpencodeAPI(
                 self.logger,
                 self.config["opencode_base_url"],
                 self.config["opencode_user"],
                 self.config["opencode_password"]
             )
-        except Exception as e:
+        except KeyError as error:
+            raise SolutionGenerationError(
+                f"Missing Opencode API configuration value: {error}"
+            ) from error
+
+    def is_opencode_running(self) -> bool:
+        return bool(self.opencode_api.get_health())
+
+    def save_opencode_openapi(self, output: str) -> None:
+        output_directory = os.path.dirname(output)
+        if output_directory:
+            os.makedirs(output_directory, exist_ok=True)
+        openapi = self.opencode_api.get_openapi()
+        with open(output, "w", encoding="utf-8") as file:
+            json.dump(openapi, file, indent=4)
+
+    def get_public_agents(self) -> list[dict[str, Any]]:
+        public_agents = []
+        for agent in self.agents.get("data", []):
+            if not agent["hidden"] and agent["mode"] == "primary" and agent["id"] not in ["build", "plan"]:
+                public_agents.append(agent)
+        return public_agents
+
+    def get_model_dict(self) -> dict[str, str]:
+        model_reference = str(self.config["model"])
+        if MODEL_REFERENCE_SEPARATOR not in model_reference:
+            raise SolutionGenerationError(
+                f"Model reference must have the form "
+                f"'<provider>{MODEL_REFERENCE_SEPARATOR}<model>': {model_reference}"
+            )
+        provider_id, model_id = model_reference.split(MODEL_REFERENCE_SEPARATOR, 1)
+        return {
+            "id": model_id,
+            "providerID": provider_id
+        }
+
+    def get_agent(self, agent_id: str) -> Optional[dict[str, Any]]:
+        for agent in self.agents.get("data", []):
+            if agent["id"] == agent_id:
+                return agent
+        return None
+
+    def get_prd_path(self) -> str:
+        return os.path.join(self.project_path, PRD_FILE_NAME)
+
+    def get_tasks_path(self) -> str:
+        return os.path.join(self.project_path, TASKS_DIRECTORY_NAME)
+
+    def get_requirements_analysis(self) -> str:
+        return (
+            f"Create PRD from interview in: {self.get_customer_interview()}. "
+            f"Save the PRD in: {self.get_prd_path()}"
+        )
+
+    def get_generate_tasks(self) -> str:
+        return (
+            f"Analyze PRD at {self.get_prd_path()} and create all tasks using the create-ticket skill. "
+            f"Each task must be saved as a separate JSON file in the {self.get_tasks_path()} directory. "
+            f"If previous tasks exist, do not create tasks that have already been created"
+        )
+
+    def get_plan_sprint_prompt(
+        self,
+        sprint: int,
+        open_tickets: list[dict[str, Any]],
+        capacity: int
+    ) -> str:
+        open_summary = "; ".join(
+            f"{ticket.get('id', ticket.get('filename'))} "
+            f"({ticket.get('status')}, {ticket.get('assignee')})"
+            for ticket in open_tickets
+        ) or "none"
+        return (
+            f"Plan sprint {sprint}. Tickets are JSON files in {self.get_tasks_path()}. "
+            f"There are {len(open_tickets)} open tickets: {open_summary}. "
+            f"The free capacity for this sprint is {capacity} tickets. "
+            f"Move at most {capacity} tickets from 'backlog' to 'to-do', set their 'sprint' "
+            f"to {sprint} and their 'assignee' to the executing agent. Only choose tickets "
+            f"whose dependencies are all done; respect priorities. Do not edit "
+            f"'statusHistory', do not modify any other ticket and do not create new tickets."
+        )
+
+    def get_customer_interview(self) -> str:
+        interview_path = self.config.get("customer_interview")
+        if not interview_path:
+            return ""
+        return os.path.abspath(str(interview_path))
+
+    def load_tickets(self) -> list[dict[str, Any]]:
+        return self.ticket_repository.load_tickets()
+
+    def get_sprint_tickets(self, sprint: Optional[int] = None) -> list[dict[str, Any]]:
+        sprint_tickets = []
+        for ticket in self.load_tickets():
+            if not is_to_do(ticket):
+                continue
+            if sprint is not None:
+                ticket["sprint"] = sprint
+            sprint_tickets.append(ticket)
+            self.logger.log(
+                logging.INFO,
+                f"Found sprint ticket: {ticket['filename']} with status '{ticket.get('status')}'"
+            )
+        return sprint_tickets
+
+    def all_tickets_closed(self) -> bool:
+        tickets = self.load_tickets()
+        if not tickets:
             self.logger.log(
                 logging.ERROR,
-                f"Failed to load Opencode API: {e}"
+                "No tickets found. The project cannot be considered complete."
+            )
+            return False
+
+        pending_tickets = [ticket for ticket in tickets if not is_closed(ticket)]
+        if not pending_tickets:
+            self.logger.log(logging.INFO, "All tickets are closed.")
+            return True
+
+        for ticket in pending_tickets:
+            self.logger.log(
+                logging.INFO,
+                f"Pending task: {ticket.get('filename')} with status '{ticket.get('status')}'"
+            )
+        self.logger.log(logging.INFO, f"{len(pending_tickets)} tickets still pending.")
+        return False
+
+    def generate_solution(self) -> None:
+        if not self.is_opencode_running():
+            raise SolutionGenerationError("Opencode is not running")
+
+        self._prepare_project()
+        self._generate_prd()
+        self._generate_tasks()
+        self._run_sprints()
+
+    def _prepare_project(self) -> None:
+        config = self.opencode_api.get_config()
+        self.logger.save_dict("config", config)
+        os.makedirs(self.project_path, exist_ok=True)
+        self.save_opencode_openapi("openapi/opencode.json")
+        self.agents = self.opencode_api.get_agents()
+
+    def _generate_prd(self) -> None:
+        interview_path = self.get_customer_interview()
+        if not interview_path:
+            raise SolutionGenerationError("Customer interview path is not configured")
+
+        prd_path = self.get_prd_path()
+        created = self._process_until(
+            "product-manager",
+            0,
+            self.get_requirements_analysis(),
+            [interview_path],
+            lambda: os.path.isfile(prd_path),
+            f"The PRD file {prd_path} does not exist yet. Continue now: write the complete "
+            f"PRD to that path {WRITE_TOOL_HINT}.",
+            self.generation_follow_ups
+        )
+        if not created:
+            raise SolutionGenerationError(
+                f"The product manager did not create the PRD: {prd_path}"
             )
 
-    def is_opencode_running(self):
-        return self.opencode_api.get_health()
+    def _generate_tasks(self) -> None:
+        tasks_path = self.get_tasks_path()
+        os.makedirs(tasks_path, exist_ok=True)
+        created = self._process_until(
+            PROJECT_MANAGER_AGENT,
+            0,
+            self.get_generate_tasks(),
+            [self.get_prd_path()],
+            lambda: bool(self.load_tickets()),
+            f"The tasks directory {tasks_path} still contains no ticket JSON files. Continue "
+            f"now: create every ticket as a separate JSON file in that directory "
+            f"{WRITE_TOOL_HINT}.",
+            self.generation_follow_ups
+        )
+        if not created:
+            raise SolutionGenerationError(
+                f"The project manager did not create any tickets in {tasks_path}"
+            )
 
-    def save_opencode_openapi(self, output):
-        if not os.path.exists("openapi"):
-            os.makedirs("openapi")
-        openapi = self.opencode_api.get_openapi()
-        with open(output, "w") as f:
-            json.dump(openapi, f, indent=4)
+    def _run_sprints(self) -> None:
+        sprint = 0
+        stalled_sprints = 0
+        while True:
+            self.logger.log(logging.INFO, f"Starting sprint {sprint}")
+            self.sprint_planner.release_unready_tickets(sprint)
+            planned_tickets = self._plan_sprint(sprint)
+            self._log_sprint_tickets(sprint, planned_tickets)
+            self._carry_over_pending_tickets(sprint)
+            self._close_completed_epics()
 
-    def get_public_agents(self):
-        return_value = []
-        for agent in self.agents["data"]:
-            if not agent["hidden"] and agent["mode"] == "primary" and agent["id"] not in ["build", "plan"]:
-                return_value.append(agent)
-        return return_value
-
-    def get_model_dict(self):
-        model_string = self.config["model"]
-        model_array = model_string.split("/")
-        return_value = {
-            "id": model_array[1],
-            "providerID": model_array[0]
-        }
-        return return_value
-
-    def get_agent(self, agent_id):
-        return_value = None
-        for agent in self.agents["data"]:
-            if agent["id"] == agent_id:
-                return_value = agent
-        return return_value
-
-    def get_requirements_analysis(self):
-        return_value = f"Create PRD from interview in: {self.config['customer_interview']}"
-        return_value += f" Save the PRD in: {self.config['project_path']}/prd.md"
-        return return_value
-
-    def get_generate_tasks(self):
-        return_value = f"Analyze PRD at {self.config['project_path']}/prd.md and create all tasks using the create-ticket skill"
-        return_value += f". Each task must be saved as a separate markdown file in the {self.config['project_path']}/tasks/ directory"
-        return_value += f". If previous tasks exist, do not create tasks that have already been created"
-        return return_value
-
-    def get_customer_interview(self):
-        return_value = ""
-        if "customer_interview" in self.config:
-            try:
-                abs_path = os.path.abspath(self.config["customer_interview"])
-                return_value = abs_path
-            except Exception as e:
-                self.logger.log(
-                    logging.ERROR,
-                    f"Failed to get customer interview: {e}"
+            if (
+                not self.sprint_planner.get_open_tickets()
+                and not self.sprint_planner.get_backlog_tickets()
+            ):
+                if self.all_tickets_closed():
+                    self.logger.log(logging.INFO, f"Finished sprint {sprint}")
+                    return
+                raise SolutionGenerationError(
+                    f"No backlog tickets available for sprint {sprint} while open tickets remain"
                 )
-        return return_value
 
-    def generate_solution(self):
-        if self.is_opencode_running():
-            config = self.opencode_api.get_config()
-            self.logger.save_dict("config", config)
-            if not os.path.exists(self.config["project_path"]):
-                os.makedirs(self.config["project_path"])
-            self.save_opencode_openapi("openapi/opencode.json")
-            self.agents = self.opencode_api.get_agents()
-            project_finished = False
-            iteration = 0
-            requirements_analysis = self.get_requirements_analysis()
-            self.process(
-                "product-manager",
-                iteration,
-                requirements_analysis,
-                [self.get_customer_interview()]
-            )
-            # Project Manager genera las tareas desde el PRD
-            tasks_prompt = self.get_generate_tasks()
-            prd_abs_path = os.path.abspath(self.config['project_path'] + "/prd.md")
-            self.process(
-                "project-manager",
-                iteration,
-                tasks_prompt,
-                [prd_abs_path]
-            )
-            # while not project_finished:
-            #     self.logger.log(logging.INFO, f"Starting iteration {iteration}")
-            #     self.logger.log(logging.INFO, f"Finished iteration {iteration}")
-            #     iteration += 1
-        else:
-            self.logger.log(logging.ERROR, "Opencode is not running")
+            progress = self._advance_sprint_tickets(sprint)
+            self._close_completed_epics()
+            self.logger.log(logging.INFO, f"Finished sprint {sprint}")
 
-    def process(self, agent, iteration, prompt, files):
+            stalled_sprints = 0 if progress or planned_tickets else stalled_sprints + 1
+            if stalled_sprints >= self.max_stalled_sprints:
+                raise SolutionGenerationError(
+                    f"No ticket progressed during {stalled_sprints} consecutive sprints"
+                )
+            sprint += 1
+
+    def _plan_sprint(self, sprint: int) -> list[dict[str, Any]]:
+        open_tickets = self.sprint_planner.get_open_tickets()
+        backlog_tickets = self.sprint_planner.get_backlog_tickets()
+        capacity = self.sprint_planner.get_capacity()
+        self.logger.log(
+            logging.INFO,
+            f"Sprint {sprint} load: {len(open_tickets)} open tickets, "
+            f"{len(backlog_tickets)} in backlog, capacity {capacity}"
+        )
+        if capacity == 0 or not backlog_tickets:
+            return []
+
+        self.process(
+            PROJECT_MANAGER_AGENT,
+            sprint,
+            self.get_plan_sprint_prompt(sprint, open_tickets, capacity),
+            [self.get_prd_path()]
+        )
+        planned_tickets = self.sprint_planner.enforce_plan(sprint, backlog_tickets, capacity)
+        if planned_tickets or open_tickets:
+            return planned_tickets
+
+        self.logger.log(
+            logging.WARNING,
+            f"Project manager planned no tickets for sprint {sprint}; "
+            f"using the deterministic planner"
+        )
+        return self.sprint_planner.plan(sprint, limit=capacity)
+
+    def _close_completed_epics(self) -> None:
+        tickets = self.load_tickets()
+        children_by_parent = self._group_children_by_parent(tickets)
+        for ticket in tickets:
+            if not self.ticket_workflow.is_epic(ticket):
+                continue
+            children = children_by_parent.get(str(ticket.get("id")), [])
+            if self.ticket_workflow.close_epic_if_complete(ticket, children):
+                self.ticket_repository.save_ticket(ticket)
+                self.logger.log(
+                    logging.INFO,
+                    f"Closed epic {ticket.get('filename')} because all children are done"
+                )
+
+    @staticmethod
+    def _group_children_by_parent(
+        tickets: list[dict[str, Any]]
+    ) -> dict[str, list[dict[str, Any]]]:
+        children_by_parent: dict[str, list[dict[str, Any]]] = {}
+        for ticket in tickets:
+            parent = ticket.get("parent")
+            if parent:
+                children_by_parent.setdefault(str(parent), []).append(ticket)
+        return children_by_parent
+
+    def _carry_over_pending_tickets(self, sprint: int) -> None:
+        for ticket in self.load_tickets():
+            if is_closed(ticket) or not is_pending(ticket):
+                continue
+            if self.ticket_workflow.is_epic(ticket):
+                continue
+            if self._ticket_sprint(ticket) != sprint:
+                ticket["sprint"] = sprint
+                self.ticket_repository.save_ticket(ticket)
+                self.logger.log(
+                    logging.INFO,
+                    f"Carried over ticket {ticket.get('filename')} to sprint {sprint}"
+                )
+
+    def _get_pending_sprint_tickets(self, sprint: int) -> list[dict[str, Any]]:
+        all_tickets = self.load_tickets()
+        closed_ticket_ids = {
+            str(ticket.get("id")) for ticket in all_tickets if is_closed(ticket)
+        }
+        return [
+            ticket for ticket in all_tickets
+            if self._ticket_sprint(ticket) == sprint
+            and is_pending(ticket)
+            and self.ticket_workflow.is_processing_ready(ticket, closed_ticket_ids)
+        ]
+
+    def _advance_sprint_tickets(self, sprint: int) -> bool:
+        """Performs one agent action, and therefore one status change, per ready ticket."""
+        pending_tickets = self._get_pending_sprint_tickets(sprint)
+        if not pending_tickets:
+            return False
+        progress = self._process_pending_tickets(pending_tickets, sprint)
+        if not progress:
+            self._log_stalled_tickets(pending_tickets)
+        return progress
+
+    def _process_pending_tickets(
+        self,
+        pending_tickets: list[dict[str, Any]],
+        sprint: int
+    ) -> bool:
+        progress = False
+        for ticket in pending_tickets:
+            if self._unblock_ready_ticket(ticket, sprint):
+                progress = True
+                continue
+            if self._process_ticket(ticket, sprint):
+                progress = True
+        return progress
+
+    def _unblock_ready_ticket(
+        self,
+        ticket: dict[str, Any],
+        sprint: int
+    ) -> bool:
+        if normalize_status(ticket.get("status")) != STATUS_BLOCKED:
+            return False
+        closed_ticket_ids = {
+            str(loaded.get("id")) for loaded in self.load_tickets() if is_closed(loaded)
+        }
+        if not self.ticket_workflow.is_processing_ready(ticket, closed_ticket_ids):
+            return False
+        if not self.ticket_workflow.unblock(ticket):
+            return False
+        self.ticket_repository.save_ticket(ticket)
+        self.logger.log(
+            logging.INFO,
+            f"Unblocked ticket {ticket.get('filename')} in sprint {sprint}"
+        )
+        return True
+
+    def _process_ticket(self, ticket: dict[str, Any], sprint: int) -> bool:
+        previous_status = normalize_status(ticket.get("status"))
+        agent = self.ticket_workflow.get_assigned_agent(ticket)
+        if not agent:
+            self.logger.log(
+                logging.WARNING,
+                f"Ticket {ticket.get('filename')} has no assignee for status "
+                f"'{previous_status}'"
+            )
+            return False
+
+        self._persist_inferred_assignee(ticket, agent)
+        self._process_until(
+            agent,
+            sprint,
+            self.ticket_workflow.build_prompt(ticket, sprint),
+            [ticket["filepath"]],
+            lambda: self._ticket_has_result(ticket),
+            self.ticket_workflow.build_result_reminder(ticket),
+            TICKET_RESULT_FOLLOW_UPS
+        )
+        updated_ticket = self._reload_ticket(ticket)
+        if updated_ticket is None:
+            return False
+        return self._save_ticket_transition(updated_ticket, sprint, previous_status)
+
+    def _persist_inferred_assignee(
+        self,
+        ticket: dict[str, Any],
+        agent: str
+    ) -> None:
+        if ticket.get("assignee"):
+            return
+        ticket["assignee"] = agent
+        self.ticket_repository.save_ticket(ticket)
+        self.logger.log(
+            logging.INFO,
+            f"Assigned ticket {ticket.get('filename')} to '{agent}'"
+        )
+
+    def _save_ticket_transition(
+        self,
+        ticket: dict[str, Any],
+        sprint: int,
+        previous_status: Optional[str] = None
+    ) -> bool:
+        previous_status = previous_status or normalize_status(ticket.get("status"))
+        if not self.ticket_workflow.apply_completion(ticket, previous_status):
+            self._discard_unregistered_status(ticket, previous_status)
+            self.logger.log(
+                logging.WARNING,
+                f"Ticket {ticket.get('filename')} was not completed in sprint {sprint}"
+            )
+            return False
+
+        self.ticket_repository.save_ticket(ticket)
+        self.logger.log(
+            logging.INFO,
+            f"Ticket {ticket.get('filename')} moved from '{previous_status}' "
+            f"to '{ticket.get('status')}' assigned to '{ticket.get('assignee')}'"
+        )
+        return True
+
+    def _ticket_has_result(self, ticket: dict[str, Any]) -> bool:
+        reloaded_ticket = self._reload_ticket(ticket)
+        return reloaded_ticket is not None and self.ticket_workflow.has_result(reloaded_ticket)
+
+    def _discard_unregistered_status(
+        self,
+        ticket: dict[str, Any],
+        previous_status: str
+    ) -> None:
+        written_status = normalize_status(ticket.get("status"))
+        if written_status == previous_status:
+            return
+        ticket["status"] = previous_status
+        self.ticket_repository.save_ticket(ticket)
+        self.logger.log(
+            logging.WARNING,
+            f"Ignored status '{written_status}' written by an agent without a result on "
+            f"{ticket.get('filename')}; restored '{previous_status}'"
+        )
+
+    def _reload_ticket(self, ticket: dict[str, Any]) -> Optional[dict[str, Any]]:
+        for loaded_ticket in self.load_tickets():
+            if loaded_ticket.get("filepath") == ticket.get("filepath"):
+                return loaded_ticket
+        return None
+
+    def _log_stalled_tickets(self, pending_tickets: list[dict[str, Any]]) -> None:
+        for ticket in pending_tickets:
+            self.logger.log(
+                logging.WARNING,
+                f"Ticket {ticket.get('filename')} is stalled in status "
+                f"'{ticket.get('status')}' assigned to '{ticket.get('assignee')}'"
+            )
+
+    @staticmethod
+    def _ticket_sprint(ticket: dict[str, Any]) -> Optional[int]:
+        try:
+            return int(ticket.get("sprint"))
+        except (TypeError, ValueError):
+            return None
+
+    def _log_sprint_tickets(self, sprint: int, sprint_tickets: list[dict[str, Any]]) -> None:
+        if not sprint_tickets:
+            return
+        self.logger.log(logging.INFO, f"Tickets in sprint {sprint}:")
+        for ticket in sprint_tickets:
+            self.logger.log(
+                logging.INFO,
+                f"  - {ticket.get('filename')}: {ticket.get('title', 'No title')}"
+            )
+
+    def process(
+        self,
+        agent: str,
+        sprint: int,
+        prompt: str,
+        files: Iterable[str]
+    ) -> dict[str, Any]:
+        self._validate_existing_files(files)
         session = self.opencode_api.get_session(
             agent,
             self.get_model_dict(),
             self.project_path
         )
-        if session:
-            success = self.opencode_api.send_prompt(
-                session=session,
-                message=prompt,
-                files=files
+        if not session:
+            raise SolutionGenerationError(f"Failed to create session for agent {agent}")
+
+        self._run_prompt(session, agent, sprint, prompt, files)
+        return session
+
+    def _process_until(
+        self,
+        agent: str,
+        sprint: int,
+        prompt: str,
+        files: Iterable[str],
+        is_done: Callable[[], bool],
+        reminder: str,
+        max_follow_ups: int
+    ) -> bool:
+        """Runs a prompt and keeps the same session going until the expected artifact exists.
+
+        Models sometimes end a session after a failed or dropped tool call; a short follow-up
+        in the same session is cheaper than starting over because the context is preserved.
+        """
+        session = self.process(agent, sprint, prompt, files)
+        for follow_up in range(1, max_follow_ups + 1):
+            if is_done():
+                return True
+            self.logger.log(
+                logging.WARNING,
+                f"Agent {agent} ended without the expected result; "
+                f"follow-up {follow_up}/{max_follow_ups}"
+            )
+            self._run_prompt(session, agent, sprint, reminder, [])
+        return is_done()
+
+    def _run_prompt(
+        self,
+        session: dict[str, Any],
+        agent: str,
+        sprint: int,
+        prompt: str,
+        files: Iterable[str]
+    ) -> None:
+        response = self.opencode_api.send_prompt(
+            session=session,
+            message=prompt,
+            files=files
+        )
+        if response is None:
+            raise SolutionGenerationError(f"Failed to send prompt to agent {agent}")
+
+        self.logger.log(
+            logging.INFO,
+            f"agent {agent} sprint {sprint} prompt {prompt[0:100]}"
+        )
+
+        if not self.opencode_api.wait_session(session):
+            self.logger.log(
+                logging.WARNING,
+                f"Session wait did not complete for agent {agent}"
             )
 
-            if success:
-                self.logger.log(
-                    logging.INFO,
-                    f"agent {agent} iteration {iteration} prompt {prompt[0:100]}"
-                )
-                # Wait for session completion
-                self.opencode_api.wait_session(session)
+        session_messages = self.opencode_api.get_session_messages(session)
+        if not session_messages or "data" not in session_messages:
+            raise SolutionGenerationError(
+                f"Failed to retrieve session messages for agent {agent}"
+            )
 
-                # Retrieve and log session messages
-                session_messages = self.opencode_api.get_session_messages(session)
-                if session_messages and "data" in session_messages:
-                    for message in session_messages["data"]:
-                        self.logger.log(logging.INFO, f"Message {message['id']}: {message}")
-                        self.logger.save_dict(message["id"], message)
-                self.logger.log(logging.INFO, f"Session completed for agent {agent}")
-            else:
-                self.logger.log(logging.ERROR, f"Failed to execute command for agent {agent}")
-        else:
-            self.logger.log(logging.ERROR, f"Failed to create session for agent {agent}")
+        self._log_session_messages(session_messages)
+
+        failure = self._find_session_failure(session_messages)
+        if failure is not None:
+            raise SolutionGenerationError(
+                f"Agent {agent} session failed: {self._describe_session_failure(failure)}"
+            )
+
+        self.logger.log(logging.INFO, f"Session completed for agent {agent}")
+
+    @staticmethod
+    def _validate_existing_files(files: Iterable[str]) -> None:
+        missing_files = [path for path in files if path and not os.path.isfile(path)]
+        if missing_files:
+            raise SolutionGenerationError(
+                f"Missing required files: {', '.join(missing_files)}"
+            )
+
+    def _log_session_messages(self, session_messages: dict[str, Any]) -> None:
+        for message in session_messages["data"]:
+            message_id = message.get("id", "unknown")
+            self.logger.log(logging.INFO, f"Message {message_id}: {message}")
+            self.logger.save_dict(message_id, message)
+
+    @staticmethod
+    def _find_session_failure(session_messages: dict[str, Any]) -> Optional[dict[str, Any]]:
+        for message in session_messages.get("data", []):
+            if message.get("finish") == SESSION_FAILURE_FINISH:
+                return message
+            if message.get("type") == "idle" and message.get("outcome") == SESSION_FAILURE_OUTCOME:
+                return message
+        return None
+
+    @staticmethod
+    def _describe_session_failure(failure: dict[str, Any]) -> str:
+        error = failure.get("error") or {}
+        return str(
+            error.get("message")
+            or failure.get("outcome")
+            or "unknown error"
+        )

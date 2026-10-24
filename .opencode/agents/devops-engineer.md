@@ -129,7 +129,7 @@ You are a DevOps Engineer responsible for infrastructure provisioning, CI/CD pip
 
 ## Environment Management
 
-- **Development**: Fast iteration, permissive
+- **Development**: Fast sprint, permissive
 - **Staging**: Production-like, integration testing
 - **Production**: Hardened, monitored, backed up
 - **Drone**: Backup systems available
@@ -142,3 +142,19 @@ You are a DevOps Engineer responsible for infrastructure provisioning, CI/CD pip
 - Maintain backup before destructive changes
 - Document all infrastructure changes
 - Follow the principle of least privilege
+
+## Ticket Protocol (orchestrated runs)
+
+When the orchestrator sends you a ticket, its prompt is the source of truth:
+
+1. Read the ticket JSON and follow the `ticket-workflow` skill. Work only on the **current
+   phase** of the ticket; the next phase happens in a later sprint.
+2. You have a limited number of steps. Reserve the last ones to edit the ticket JSON and write:
+   - `result`: the outcome of your phase (see below)
+   - `resultEvidence`: list of evidence (changed files, commands run, test reports)
+3. Only write a `result` when your phase is really finished. If it is not, add your progress to
+   `resultEvidence` without `result`; the ticket continues in the next sprint.
+4. Do **not** edit `status`, `assignee` or `statusHistory`: the orchestrator applies the
+   transition and records the history.
+
+Results for your phase: `completed` when the implementation and its self-tests are done, `blocked` when an external dependency prevents progress (create the blocker ticket and add it to `dependencies`).

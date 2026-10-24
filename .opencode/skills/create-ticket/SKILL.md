@@ -1,181 +1,295 @@
 ---
 name: create-ticket
-description: Create structured task tickets in the tasks directory
+description: Create structured task tickets with sprint assignments from PRD analysis
 license: MIT
 compatibility: opencode
 metadata:
-  audience: developers, product-owners, qa-engineers, architects
-  workflow: task-management
+  audience: developers
+  workflow: project-management
   opencode/slash: "true"
   opencode/autoinvoke: "false"
 ---
 
-# Ticket Creation Skill
+## What I Do
 
-## What I do
+I analyze PRDs (Product Requirement Documents) and create structured task tickets in JSON format with the following information:
+- Task ID and title
+- Sprint assignment
+- Priority level
+- Estimated effort (story points)
+- Dependencies
+- Acceptance criteria
+- Technical notes
+- Definition of done
+- Timestamps
 
-I create structured task tickets as Markdown files in the `tasks/` directory of the **target project directory**. Each ticket follows a standardized format with metadata, clear descriptions, acceptance criteria, and workflow state tracking.
+## When to Use Me
 
-The target project directory is the output/project folder specified in the current operation context (e.g., `output_path/tasks/` or the designated project root's `tasks/` directory).
+Use this skill when:
+- You have a completed PRD that needs to be broken down into tasks
+- You need to create tickets for a sprint backlog
+- Tasks need to be organized by sprint assignments
 
-## When to use me
+## Process
 
-Use this skill when you need to:
+### Step 1: Analyze the PRD
+- Read the provided PRD file
+- Identify major features and user stories
+- Extract requirements and acceptance criteria
+- Note any dependencies between features
 
-- Create a new task, story, bug, epic, spike, or subtask
-- Document a technical decision request
-- Track work items in a structured format
-- Escalate issues or uncertainties to other team members
-- Create reproducible bug reports
-- Plan technical investigation or research
+### Step 2: Create Task Tickets
 
-## Ticket Types
+For each task, create a JSON file in the `/tasks/` directory with the following structure:
 
-| Type | Purpose |
-|------|---------|
-| **Epic** | Large initiatives grouping multiple stories/tasks |
-| **Story** | User-facing functionality from user's perspective |
-| **Task** | Technical work (implementation, refactoring, decisions) |
-| **Bug** | Defects, regressions, or unexpected behaviors |
-| **Subtask** | Smaller steps within a parent ticket |
-| **Spike** | Technical research or investigation to reduce uncertainty |
+Naming convention: `TYPE-ID-description.json`
 
-## Status Values
-
-| Status | Description |
-|--------|-------------|
-| **Backlog** | Ticket created but not yet prioritized |
-| **To Do** | Prioritized and ready for work |
-| **In Progress** | Work currently being done |
-| **In Review** | Implementation complete, awaiting review |
-| **In Testing** | Approved in review, awaiting QA verification |
-| **Blocked** | Work stopped due to external dependency |
-| **Done** | All criteria verified, meeting Definition of Done |
-
-## Priority Values
-
-| Priority | Description | When to Use |
-|----------|-------------|-------------|
-| **P0 (Critical)** | Must be done immediately, blocks release | Critical bugs, security issues, showstoppers |
-| **P1 (High)** | High priority, should be done this sprint | Major features, critical improvements |
-| **P2 (Medium)** | Normal priority, plan for next sprint | Standard features, improvements |
-| **P3 (Low)** | Nice to have, do when capacity allows | Enhancements, cosmetics, technical debt |
-
-## How to invoke me
-
-Call me with details about the ticket you want to create and the target project:
-
+```json
+{
+  "id": "TASK-001",
+  "type": "<epic|story|task|subtask>",
+  "title": "<Task Title>",
+  "parent": "<PARENT-TYPE-ID or null>",
+  "sprint": null,
+  "priority": "<P0|P1|P2|P3>",
+  "estimatedEffort": <story-points>,
+  "status": "backlog",
+  "assignee": null,
+  "implementedBy": null,
+  "reviewedBy": null,
+  "testedBy": null,
+  "requiresReview": true,
+  "resultEvidence": [],
+  "createdBy": "project-manager",
+  "dependencies": ["<TYPE-XXX>"],
+  "description": "<Clear description of what needs to be done>",
+  "acceptanceCriteria": [
+    "<Criterion 1>",
+    "<Criterion 2>",
+    "<Criterion 3>"
+  ],
+  "technicalNotes": "<Any technical implementation details or considerations>",
+  "definitionDone": [
+    "Code completed and reviewed",
+    "Tests passing",
+    "Documentation updated",
+    "Deployed to staging"
+  ],
+  "statusHistory": [
+    {
+      "from": null,
+      "to": "backlog",
+      "actor": "project-manager",
+      "timestamp": "<ISO-8601-timestamp>",
+      "reason": "Ticket created",
+      "evidence": []
+    }
+  ],
+  "createdAt": "<ISO-8601-timestamp>",
+  "updatedAt": "<ISO-8601-timestamp>"
+}
 ```
-create-ticket: Create a bug ticket for login authentication failing with valid credentials in project: /path/to/project (P0)
-```
 
-```
-create-ticket: Create a story for user profile management feature in project: [output_path] (P2)
-```
+**Orchestrator fields**:
 
-```
-create-ticket: Create a spike to investigate database migration options (3 days) in project: [target_project] (P1)
-```
+- `requiresReview`: `true` for code changes; `false` for non-code work (documentation, design,
+  research), which goes from `in-progress` straight to `in-testing`.
+- `testedBy`: QA agent for `in-testing` (`qa-automation` by default, `qa-manual` for UX checks).
+- `resultEvidence`: filled by the executing agent together with `result` when its phase ends.
+- `priority` must be one of `P0`, `P1`, `P2`, `P3`; any other value is planned last.
 
-**Note**: Specify the target project directory where the `tasks/` folder should be created. This is typically the output directory or the project being generated/worked on. You can also specify the priority level (P0-P3).
+**Status lifecycle**: every ticket starts in `backlog`. All later transitions follow the
+`ticket-workflow` skill. Only `project-manager` may set `done`.
 
-## Ticket Metadata
+| Status slug | Owner |
+|---|---|
+| `backlog` | `project-manager` |
+| `to-do` | `project-manager` (planning) / `assignee` (execution) |
+| `in-progress` | current `assignee` |
+| `in-review` | assigned reviewer (default `software-architect`) |
+| `in-testing` | `qa-automation` / `qa-manual` |
+| `blocked` | current `assignee` + `project-manager` |
+| `done` | `project-manager` only |
 
-Every ticket includes these fields:
+**Note**: the `sprint` field is left as `null`. Sprints are assigned during backlog planning.
 
-| Field | Description |
-|-------|-------------|
-| **Type** | Epic, Story, Task, Bug, Subtask, or Spike |
-| **Status** | Workflow state (starts as Backlog) |
-| **Priority** | P0 (Critical), P1 (High), P2 (Medium), P3 (Low) |
-| **Created By** | Who created the ticket (you/your agent) |
-| **Assigned To** | Who should work on this ticket |
+**Naming conventions by type:**
 
-## Ticket Template
+| Type | Prefix | Example file |
+|------|---------|-------------------|
+| Epic | `EPIC-` | `EPIC-001-user-auth.json` |
+| Story | `STORY-` | `STORY-001-login-form.json` |
+| Task | `TASK-` | `TASK-001-validate-email.json` |
+| Subtask | `SUBTASK-` | `SUBTASK-001-unit-tests.json` |
 
-When creating a ticket, I use this structure:
+**Ticket types:**
 
-```markdown
-# [TICKET-ID]: [Short, Descriptive Title]
+| Type | Description | Parent |
+|------|-------------|--------|
+| `epic` | Large initiative or theme | `null` |
+| `story` | User story | `EPIC-XXX` |
+| `task` | Technical task | `STORY-XXX` or `EPIC-XXX` |
+| `subtask` | Detailed subtask | `TASK-XXX` |
 
-## Metadata
-- **Type:** [Type]
-- **Status:** Backlog
-- **Priority:** P0/P1/P2/P3
-- **Created By:** [Your identifier]
-- **Assigned To:** [Assignee identifier]
+### Step 3: Sprint Assignment
 
----
+Sprint assignments are left as `null` during ticket creation. Sprint planning happens separately during backlog planning sessions.
 
-## Description
-[Clear and concise summary]
+**Guidelines for planning (applied later):**
 
----
+- **Sprint 0**: Project setup, infrastructure, environment configuration
+- **Sprint 1+**: Features and functionality
+- Consider dependencies when assigning sprints
+- Children can inherit sprint from parent during planning
 
-## Details & Context
-- **Target Files / Modules:** [Affected files or components]
-- **Prerequisites / Dependencies:** [Blocking tickets or required config]
+If the PRD doesn't specify sprint assignments:
+- Group related tasks together
+- Consider dependencies (tasks that depend on others should be in later sprints)
+- Aim for 5-8 tasks per sprint for a typical 2-week sprint
 
----
+### Step 4: Validate Tasks
 
-## Specification / Options / Steps to Reproduce
-[Varies by type - detailed requirements, alternative options, or reproduction steps]
-
----
-
-## Acceptance Criteria (Definition of Done)
-- [ ] Functional criteria verified
-- [ ] Unit & integration tests implemented (>=90% coverage if applicable)
-- [ ] Clean code & security standards verified
-- [ ] Logging properly integrated
-```
+Before finalizing:
+- Ensure each task is independent and testable
+- Verify all acceptance criteria are clear and measurable
+- Check that dependencies are correctly identified
+- Confirm sprint assignments respect task dependencies
 
 ## Examples
 
-### Creating a Bug Report
+### Example Epic (no parent)
 
-**Input:** `create-ticket: Bug - API returns 500 error when uploading large files`
-
-**Output:** Ticket with:
-- Clear reproduction steps
-- Expected vs actual behavior
-- Error logs and stack traces
-- Affected endpoints and file sizes tested
-
-### Creating a Technical Decision Task
-
-**Input:** `create-ticket: Task - Decide between PostgreSQL and MongoDB for document storage`
-
-**Output:** Ticket with:
-- Problem context
-- Option A: PostgreSQL with trade-offs
-- Option B: MongoDB with trade-offs
-- Recommendation for review
-
-### Creating a Spike
-
-**Input:** `create-ticket: Spike - Research Kubernetes deployment options (2 days)`
-
-**Output:** Ticket with:
-- Research question
-- Timebox: 2 days
-- Investigation scope
-- Expected deliverables: findings and recommendations
-
-## Ticket Lifecycle
-
+```json
+{
+  "id": "EPIC-001",
+  "type": "epic",
+  "title": "Implement user authentication system",
+  "parent": null,
+  "sprint": null,
+  "priority": "P0",
+  "estimatedEffort": 13,
+  "status": "backlog",
+  "assignee": null,
+  "implementedBy": null,
+  "reviewedBy": null,
+  "testedBy": null,
+  "requiresReview": true,
+  "resultEvidence": [],
+  "createdBy": "project-manager",
+  "dependencies": [],
+  "description": "Implement a complete user authentication system with login, registration, and password recovery.",
+  "acceptanceCriteria": [
+    "Users can register with email and password",
+    "Users can login with credentials",
+    "Password recovery via email",
+    "Session management implemented"
+  ],
+  "technicalNotes": "Use JWT tokens for session management. Follow OWASP security guidelines.",
+  "definitionDone": [
+    "Code completed and reviewed",
+    "Tests passing",
+    "Documentation updated",
+    "Deployed to staging"
+  ],
+  "createdAt": "2026-10-22T10:00:00Z",
+  "updatedAt": "2026-10-22T10:00:00Z"
+}
 ```
-Backlog → To Do → In Progress → In Review → In Testing → Done
-                ↖          ↙            ↙
-                  Blocked ←─────────┘
+
+### Example Story (with parent epic)
+
+```json
+{
+  "id": "STORY-001",
+  "type": "story",
+  "title": "User login functionality",
+  "parent": "EPIC-001",
+  "sprint": null,
+  "priority": "P0",
+  "estimatedEffort": 5,
+  "status": "backlog",
+  "assignee": null,
+  "implementedBy": null,
+  "reviewedBy": null,
+  "testedBy": null,
+  "requiresReview": true,
+  "resultEvidence": [],
+  "createdBy": "project-manager",
+  "dependencies": [],
+  "description": "As a user, I want to log in to my account so that I can access my personalized dashboard.",
+  "acceptanceCriteria": [
+    "Login form validates email format",
+    "Invalid credentials show error message",
+    "Successful login redirects to dashboard",
+    "Remember me option works"
+  ],
+  "technicalNotes": "Integrate with authentication service created in TASK-001.",
+  "definitionDone": [
+    "Code completed and reviewed",
+    "Tests passing",
+    "Documentation updated",
+    "Deployed to staging"
+  ],
+  "createdAt": "2026-10-22T10:00:00Z",
+  "updatedAt": "2026-10-22T10:00:00Z"
+}
 ```
 
-## Important Notes
+### Example Task (with parent story)
 
-- Tickets are created in the `tasks/` directory **of the target project directory** (not necessarily the current working directory)
-- The target project is specified when invoking the skill (e.g., `in project: [output_path]`)
-- New tickets start with `Status: Backlog` and default `Priority: P2 (Medium)`
-- Explicitly set priority: P0 (Critical), P1 (High), P2 (Medium), P3 (Low)
-- Use English for ticket content (following best practices)
-- Assign appropriate agents based on the ticket type and workflow state
-- Include sufficient context for the assignee to understand and act
+```json
+{
+  "id": "TASK-001",
+  "type": "task",
+  "title": "Create login form component",
+  "parent": "STORY-001",
+  "sprint": null,
+  "priority": "P0",
+  "estimatedEffort": 3,
+  "status": "backlog",
+  "assignee": null,
+  "implementedBy": null,
+  "reviewedBy": null,
+  "testedBy": null,
+  "requiresReview": true,
+  "resultEvidence": [],
+  "createdBy": "project-manager",
+  "dependencies": [],
+  "description": "Create a React login form component with validation and error handling.",
+  "acceptanceCriteria": [
+    "Form has email and password fields",
+    "Client-side validation implemented",
+    "Loading state shown during API call",
+    "Error messages display correctly"
+  ],
+  "technicalNotes": "Use Formik for form management and Yup for validation.",
+  "definitionDone": [
+    "Code completed and reviewed",
+    "Tests passing",
+    "Documentation updated",
+    "Deployed to staging"
+  ],
+  "createdAt": "2026-10-22T10:00:00Z",
+  "updatedAt": "2026-10-22T10:00:00Z"
+}
+```
+
+## Troubleshooting
+
+### Issue: Unclear requirements in PRD
+**Solution**: Create a TASK-000 for requirements clarification and add it to Sprint 1
+
+### Issue: Task too large for one sprint
+**Solution**: Break down the task into smaller, independent subtasks
+
+### Issue: Missing dependencies
+**Solution**: Review task relationships and add dependency markers
+
+## Best Practices
+
+1. **Keep hierarchy clear**: Maximum 4 levels (Epic → Story → Task → Subtask)
+2. **Use parent field**: Always assign parent for traceability
+3. **Epics have no parent**: Epics always have `parent: null`
+4. **Subtasks point to direct parent**: Subtasks always point to TASK, not STORY
+5. **Consistent IDs**: Use sequential numbers per ticket type
+6. **Sprint inheritance**: Children inherit sprint from parent if not explicitly assigned
