@@ -207,7 +207,7 @@ class OpencodeAPI:
             )
         return return_value
 
-    def wait_session(self, session):
+    def wait_session(self, session, timeout=None):
         return_value = False
         try:
             session_id = session["data"]["id"]
@@ -217,7 +217,7 @@ class OpencodeAPI:
                 url,
                 headers=headers,
                 auth=self.get_basic_auth(),
-                timeout=None
+                timeout=timeout
             )
             if response.status_code == 204:
                 return_value = True
@@ -226,10 +226,40 @@ class OpencodeAPI:
                     logging.WARNING,
                     f"Session wait returned {response.status_code}: {response.text}"
                 )
+        except requests.Timeout:
+            self.logger.log(
+                logging.WARNING,
+                f"Session wait timed out after {timeout} seconds"
+            )
         except Exception as e:
             self.logger.log(
                 logging.ERROR,
                 f"Error waiting session: {e}"
+            )
+        return return_value
+
+    def interrupt_session(self, session):
+        return_value = False
+        try:
+            session_id = session["data"]["id"]
+            url = self.base_url + f"/api/session/{session_id}/interrupt"
+            headers = self.get_headers()
+            response = requests.post(
+                url,
+                headers=headers,
+                auth=self.get_basic_auth()
+            )
+            if response.status_code == 200:
+                return_value = True
+            else:
+                self.logger.log(
+                    logging.WARNING,
+                    f"Session interrupt returned {response.status_code}: {response.text}"
+                )
+        except Exception as e:
+            self.logger.log(
+                logging.ERROR,
+                f"Error interrupting session: {e}"
             )
         return return_value
 

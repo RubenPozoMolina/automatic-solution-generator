@@ -67,6 +67,11 @@ model: "provider/model-name"
 | `opencode_user` | string | Username for OpenCode API authentication |
 | `opencode_password` | string | Password for OpenCode API authentication |
 | `model` | string | Model specification in format `providerID/modelID` (e.g., `opencode/big-pickle`) |
+| `tasks_per_sprint` | int | Maximum open tickets per sprint (default `5`) |
+| `max_stalled_sprints` | int | Consecutive sprints without progress before aborting (default `3`) |
+| `generation_follow_ups` | int | Follow-up prompts when the PRD or tickets are missing after a session (default `2`) |
+| `session_timeout` | number | Seconds to wait for an agent session; on expiry it is interrupted and the ticket phase is retried next sprint (default `1800`) |
+| `resume` | bool | Reuse an existing PRD and tickets and continue from the latest sprint (default `true`); set `false` or delete the project directory to start over |
 
 ## Usage
 

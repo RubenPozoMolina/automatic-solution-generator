@@ -1,10 +1,11 @@
 import json
 import logging
 import os
-from typing import Any, Callable, Iterable, Optional
+from typing import Any, Callable, Iterable, Optional, Union
 
-from src.errors import SolutionGenerationError
+from src.errors import SessionTimeoutError, SolutionGenerationError
 from src.sprint_planner import SprintPlanner
+from src.sprint_report import SprintReport
 from src.ticket_repository import TicketRepository
 from src.ticket_status import (
     STATUS_BLOCKED,
@@ -24,10 +25,12 @@ TASKS_DIRECTORY_NAME = "tasks"
 DEFAULT_TASKS_PER_SPRINT = 5
 SESSION_FAILURE_FINISH = "error"
 SESSION_FAILURE_OUTCOME = "failed"
+SESSION_SUCCESS_OUTCOME = "succeeded"
 DEFAULT_MAX_STALLED_SPRINTS = 3
 PROJECT_MANAGER_AGENT = "project-manager"
 DEFAULT_GENERATION_FOLLOW_UPS = 2
 TICKET_RESULT_FOLLOW_UPS = 1
+DEFAULT_SESSION_TIMEOUT = 1800
 WRITE_TOOL_HINT = "with the `write` tool (arguments: `path`, `content`)"
 
 
@@ -53,6 +56,8 @@ class AutomaticSolutionGenerator:
         self.generation_follow_ups = int(
             config.get("generation_follow_ups", DEFAULT_GENERATION_FOLLOW_UPS)
         )
+        self.session_timeout = float(config.get("session_timeout", DEFAULT_SESSION_TIMEOUT))
+        self.resume = bool(config.get("resume", True))
 
     def _create_opencode_api(self) -> OpencodeAPI:
         try:
@@ -194,9 +199,30 @@ class AutomaticSolutionGenerator:
             raise SolutionGenerationError("Opencode is not running")
 
         self._prepare_project()
-        self._generate_prd()
-        self._generate_tasks()
-        self._run_sprints()
+        if self.resume and os.path.isfile(self.get_prd_path()):
+            self.logger.log(logging.INFO, f"Resuming: PRD already exists at {self.get_prd_path()}")
+        else:
+            self._generate_prd()
+        if self.resume and self.load_tickets():
+            self.logger.log(
+                logging.INFO,
+                f"Resuming: tickets already exist in {self.get_tasks_path()}"
+            )
+        else:
+            self._generate_tasks()
+        self._run_sprints(self._get_start_sprint())
+
+    def _get_start_sprint(self) -> int:
+        if not self.resume:
+            return 0
+        sprints = [
+            sprint for sprint in map(self._ticket_sprint, self.load_tickets())
+            if sprint is not None
+        ]
+        start_sprint = max(sprints, default=0)
+        if start_sprint:
+            self.logger.log(logging.INFO, f"Resuming sprints from sprint {start_sprint}")
+        return start_sprint
 
     def _prepare_project(self) -> None:
         config = self.opencode_api.get_config()
@@ -245,11 +271,12 @@ class AutomaticSolutionGenerator:
                 f"The project manager did not create any tickets in {tasks_path}"
             )
 
-    def _run_sprints(self) -> None:
-        sprint = 0
+    def _run_sprints(self, start_sprint: int = 0) -> None:
+        sprint = start_sprint
         stalled_sprints = 0
         while True:
             self.logger.log(logging.INFO, f"Starting sprint {sprint}")
+            statuses_before = SprintReport.snapshot(self.load_tickets())
             self.sprint_planner.release_unready_tickets(sprint)
             planned_tickets = self._plan_sprint(sprint)
             self._log_sprint_tickets(sprint, planned_tickets)
@@ -262,6 +289,7 @@ class AutomaticSolutionGenerator:
             ):
                 if self.all_tickets_closed():
                     self.logger.log(logging.INFO, f"Finished sprint {sprint}")
+                    self._log_sprint_report(sprint, statuses_before, planned_tickets)
                     return
                 raise SolutionGenerationError(
                     f"No backlog tickets available for sprint {sprint} while open tickets remain"
@@ -270,6 +298,7 @@ class AutomaticSolutionGenerator:
             progress = self._advance_sprint_tickets(sprint)
             self._close_completed_epics()
             self.logger.log(logging.INFO, f"Finished sprint {sprint}")
+            self._log_sprint_report(sprint, statuses_before, planned_tickets)
 
             stalled_sprints = 0 if progress or planned_tickets else stalled_sprints + 1
             if stalled_sprints >= self.max_stalled_sprints:
@@ -277,6 +306,16 @@ class AutomaticSolutionGenerator:
                     f"No ticket progressed during {stalled_sprints} consecutive sprints"
                 )
             sprint += 1
+
+    def _log_sprint_report(
+        self,
+        sprint: int,
+        statuses_before: dict[str, str],
+        planned_tickets: list[dict[str, Any]]
+    ) -> None:
+        report = SprintReport(sprint, statuses_before, self.load_tickets(), len(planned_tickets))
+        for line in report.lines():
+            self.logger.log(logging.INFO, line)
 
     def _plan_sprint(self, sprint: int) -> list[dict[str, Any]]:
         open_tickets = self.sprint_planner.get_open_tickets()
@@ -415,15 +454,23 @@ class AutomaticSolutionGenerator:
             return False
 
         self._persist_inferred_assignee(ticket, agent)
-        self._process_until(
-            agent,
-            sprint,
-            self.ticket_workflow.build_prompt(ticket, sprint),
-            [ticket["filepath"]],
-            lambda: self._ticket_has_result(ticket),
-            self.ticket_workflow.build_result_reminder(ticket),
-            TICKET_RESULT_FOLLOW_UPS
-        )
+        try:
+            self._process_until(
+                agent,
+                sprint,
+                self.ticket_workflow.build_prompt(ticket, sprint),
+                [ticket["filepath"]],
+                lambda: self._ticket_has_result(ticket),
+                lambda: self._build_ticket_reminder(ticket),
+                TICKET_RESULT_FOLLOW_UPS
+            )
+        except SessionTimeoutError as error:
+            self.logger.log(
+                logging.WARNING,
+                f"Ticket {ticket.get('filename')} keeps status '{previous_status}' "
+                f"in sprint {sprint}: {error}"
+            )
+            return False
         updated_ticket = self._reload_ticket(ticket)
         if updated_ticket is None:
             return False
@@ -467,8 +514,20 @@ class AutomaticSolutionGenerator:
         return True
 
     def _ticket_has_result(self, ticket: dict[str, Any]) -> bool:
+        if self.ticket_repository.get_parse_error(ticket["filepath"]):
+            return False
         reloaded_ticket = self._reload_ticket(ticket)
         return reloaded_ticket is not None and self.ticket_workflow.has_result(reloaded_ticket)
+
+    def _build_ticket_reminder(self, ticket: dict[str, Any]) -> str:
+        parse_error = self.ticket_repository.get_parse_error(ticket["filepath"])
+        if parse_error:
+            return (
+                f"The ticket file {ticket['filepath']} is no longer valid JSON ({parse_error}). "
+                f"Fix the syntax now, keeping your changes, so the file parses again. "
+                f"{self.ticket_workflow.build_result_reminder(ticket)}"
+            )
+        return self.ticket_workflow.build_result_reminder(ticket)
 
     def _discard_unregistered_status(
         self,
@@ -543,7 +602,7 @@ class AutomaticSolutionGenerator:
         prompt: str,
         files: Iterable[str],
         is_done: Callable[[], bool],
-        reminder: str,
+        reminder: Union[str, Callable[[], str]],
         max_follow_ups: int
     ) -> bool:
         """Runs a prompt and keeps the same session going until the expected artifact exists.
@@ -560,7 +619,8 @@ class AutomaticSolutionGenerator:
                 f"Agent {agent} ended without the expected result; "
                 f"follow-up {follow_up}/{max_follow_ups}"
             )
-            self._run_prompt(session, agent, sprint, reminder, [])
+            message = reminder() if callable(reminder) else reminder
+            self._run_prompt(session, agent, sprint, message, [])
         return is_done()
 
     def _run_prompt(
@@ -584,10 +644,15 @@ class AutomaticSolutionGenerator:
             f"agent {agent} sprint {sprint} prompt {prompt[0:100]}"
         )
 
-        if not self.opencode_api.wait_session(session):
+        if not self.opencode_api.wait_session(session, self.session_timeout):
+            interrupted = self.opencode_api.interrupt_session(session)
             self.logger.log(
                 logging.WARNING,
-                f"Session wait did not complete for agent {agent}"
+                f"Session for agent {agent} did not finish within {self.session_timeout:g} "
+                f"seconds; interrupted: {interrupted}"
+            )
+            raise SessionTimeoutError(
+                f"Agent {agent} session did not finish within {self.session_timeout:g} seconds"
             )
 
         session_messages = self.opencode_api.get_session_messages(session)
@@ -622,12 +687,30 @@ class AutomaticSolutionGenerator:
 
     @staticmethod
     def _find_session_failure(session_messages: dict[str, Any]) -> Optional[dict[str, Any]]:
+        """Returns the failure that ended the session, ignoring errors it recovered from.
+
+        Opencode retries provider errors (e.g. a stream cut by the model server) inside the
+        same session, so an earlier failed message followed by a successful one is not fatal.
+        """
+        failure = None
         for message in session_messages.get("data", []):
-            if message.get("finish") == SESSION_FAILURE_FINISH:
-                return message
-            if message.get("type") == "idle" and message.get("outcome") == SESSION_FAILURE_OUTCOME:
-                return message
-        return None
+            if AutomaticSolutionGenerator._is_failure_message(message):
+                failure = message
+            elif AutomaticSolutionGenerator._is_success_message(message):
+                failure = None
+        return failure
+
+    @staticmethod
+    def _is_failure_message(message: dict[str, Any]) -> bool:
+        if message.get("finish") == SESSION_FAILURE_FINISH:
+            return True
+        return message.get("type") == "idle" and message.get("outcome") == SESSION_FAILURE_OUTCOME
+
+    @staticmethod
+    def _is_success_message(message: dict[str, Any]) -> bool:
+        if message.get("type") == "idle":
+            return message.get("outcome") == SESSION_SUCCESS_OUTCOME
+        return message.get("type") == "assistant" and message.get("finish") is not None
 
     @staticmethod
     def _describe_session_failure(failure: dict[str, Any]) -> str:

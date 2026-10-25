@@ -1,6 +1,7 @@
 from unittest.mock import MagicMock, patch
 
 import pytest
+import requests
 
 from utils.opencode_api import OpencodeAPI
 
@@ -129,6 +130,39 @@ def test_wait_session_returns_false_on_unexpected_status(mock_post, opencode_api
     mock_post.return_value = build_response(status_code=500, text="failure")
 
     assert opencode_api.wait_session({"data": {"id": "session-1"}}) is False
+
+
+@patch("utils.opencode_api.requests.post")
+def test_wait_session_passes_timeout(mock_post, opencode_api):
+    mock_post.return_value = build_response(status_code=204)
+
+    opencode_api.wait_session({"data": {"id": "session-1"}}, timeout=30)
+
+    assert mock_post.call_args.kwargs["timeout"] == 30
+
+
+@patch("utils.opencode_api.requests.post")
+def test_wait_session_returns_false_on_timeout(mock_post, opencode_api):
+    mock_post.side_effect = requests.Timeout("read timed out")
+
+    assert opencode_api.wait_session({"data": {"id": "session-1"}}, timeout=30) is False
+
+
+@patch("utils.opencode_api.requests.post")
+def test_interrupt_session_posts_to_interrupt_endpoint(mock_post, opencode_api):
+    mock_post.return_value = build_response(status_code=200, json_data={})
+
+    assert opencode_api.interrupt_session({"data": {"id": "session-1"}}) is True
+    assert mock_post.call_args.args[0] == (
+        "http://localhost:8080/api/session/session-1/interrupt"
+    )
+
+
+@patch("utils.opencode_api.requests.post")
+def test_interrupt_session_returns_false_on_error(mock_post, opencode_api):
+    mock_post.return_value = build_response(status_code=404, text="not found")
+
+    assert opencode_api.interrupt_session({"data": {"id": "session-1"}}) is False
 
 
 @patch("utils.opencode_api.requests.get")

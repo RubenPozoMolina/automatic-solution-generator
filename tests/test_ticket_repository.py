@@ -82,3 +82,46 @@ def test_save_ticket_wraps_write_errors(tmp_path, logger, monkeypatch):
 
     with pytest.raises(SolutionGenerationError, match="Error saving"):
         repository.save_ticket({"filepath": str(tmp_path / "TASK-001.json")})
+
+
+BROKEN_JSON = '{\n  "id": "TASK-001",\n  "result": "completed"\n  "status": "in-review"\n}'
+
+
+def test_get_parse_error_reports_invalid_json(tasks_path, repository):
+    path = tasks_path / "TASK-001.json"
+    path.write_text(BROKEN_JSON, encoding="utf-8")
+
+    assert "delimiter" in repository.get_parse_error(str(path))
+
+
+def test_get_parse_error_returns_none_for_valid_json(tasks_path, repository):
+    path = write_ticket(tasks_path, {"id": "TASK-001"})
+
+    assert repository.get_parse_error(str(path)) is None
+
+
+def test_load_restores_last_valid_version_of_broken_ticket(tasks_path, repository):
+    path = write_ticket(tasks_path, {"id": "TASK-001", "status": "in-progress"})
+    repository.load_tickets()
+    path.write_text(BROKEN_JSON, encoding="utf-8")
+
+    tickets = repository.load_tickets()
+
+    assert [ticket["status"] for ticket in tickets] == ["in-progress"]
+    assert json.loads(path.read_text(encoding="utf-8"))["status"] == "in-progress"
+
+
+def test_load_skips_broken_ticket_without_previous_version(tasks_path, repository):
+    (tasks_path / "TASK-001.json").write_text(BROKEN_JSON, encoding="utf-8")
+
+    assert repository.load_tickets() == []
+
+
+def test_save_updates_last_valid_version(tasks_path, repository):
+    path = write_ticket(tasks_path, {"id": "TASK-001", "status": "to-do"})
+    ticket = repository.load_tickets()[0]
+    ticket["status"] = "in-review"
+    repository.save_ticket(ticket)
+    path.write_text(BROKEN_JSON, encoding="utf-8")
+
+    assert repository.load_tickets()[0]["status"] == "in-review"

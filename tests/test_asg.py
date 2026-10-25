@@ -5,7 +5,7 @@ from unittest.mock import MagicMock
 import pytest
 
 from src.asg import AutomaticSolutionGenerator
-from src.errors import SolutionGenerationError
+from src.errors import SessionTimeoutError, SolutionGenerationError
 
 
 @pytest.fixture
@@ -404,3 +404,162 @@ def test_run_sprints_does_not_fill_sprint_with_dependent_tickets(generator):
     assert sorted(ticket["id"] for ticket in planned) == ["TASK-001", "TASK-020"]
     assert read_ticket(generator, "TASK-003")["status"] == "backlog"
     assert read_ticket(generator, "TASK-007")["status"] == "backlog"
+
+
+def test_process_interrupts_session_that_does_not_finish(generator):
+    generator.session_timeout = 5
+    generator.opencode_api = MagicMock()
+    generator.opencode_api.get_session.return_value = {"data": {"id": "session-1"}}
+    generator.opencode_api.send_prompt.return_value = {"ok": True}
+    generator.opencode_api.wait_session.return_value = False
+
+    with pytest.raises(SessionTimeoutError, match="5 seconds"):
+        generator.process("qa-automation", 0, "prompt", [])
+
+    generator.opencode_api.wait_session.assert_called_once_with({"data": {"id": "session-1"}}, 5)
+    generator.opencode_api.interrupt_session.assert_called_once()
+    generator.opencode_api.get_session_messages.assert_not_called()
+
+
+def test_process_ticket_keeps_status_when_session_times_out(generator):
+    write_ticket(
+        generator.get_tasks_path(),
+        {"id": "TASK-001", "status": "in-testing", "sprint": 0, "assignee": "qa-automation"}
+    )
+    generator.process = MagicMock(side_effect=SessionTimeoutError("did not finish"))
+
+    assert generator._process_ticket(generator.load_tickets()[0], 0) is False
+    assert read_ticket(generator, "TASK-001")["status"] == "in-testing"
+
+
+def prepare_existing_project(generator):
+    Path(generator.project_path).mkdir(parents=True, exist_ok=True)
+    Path(generator.get_prd_path()).write_text("prd", encoding="utf-8")
+    write_ticket(generator.get_tasks_path(), {"id": "TASK-001", "status": "done", "sprint": 3})
+    write_ticket(generator.get_tasks_path(), {"id": "TASK-002", "status": "in-testing", "sprint": 7})
+    write_ticket(generator.get_tasks_path(), {"id": "TASK-003", "status": "backlog"})
+    generator.is_opencode_running = MagicMock(return_value=True)
+    generator._prepare_project = MagicMock()
+    generator._generate_prd = MagicMock()
+    generator._generate_tasks = MagicMock()
+    generator._run_sprints = MagicMock()
+
+
+def test_generate_solution_resumes_existing_project(generator):
+    prepare_existing_project(generator)
+
+    generator.generate_solution()
+
+    generator._generate_prd.assert_not_called()
+    generator._generate_tasks.assert_not_called()
+    generator._run_sprints.assert_called_once_with(7)
+
+
+def test_generate_solution_regenerates_everything_without_resume(generator):
+    prepare_existing_project(generator)
+    generator.resume = False
+
+    generator.generate_solution()
+
+    generator._generate_prd.assert_called_once()
+    generator._generate_tasks.assert_called_once()
+    generator._run_sprints.assert_called_once_with(0)
+
+
+def test_generate_solution_starts_at_sprint_zero_for_new_project(generator):
+    generator.is_opencode_running = MagicMock(return_value=True)
+    generator._prepare_project = MagicMock()
+    generator._generate_prd = MagicMock()
+    generator._generate_tasks = MagicMock(
+        side_effect=lambda: write_ticket(generator.get_tasks_path(), {"id": "TASK-001"})
+    )
+    generator._run_sprints = MagicMock()
+
+    generator.generate_solution()
+
+    generator._generate_prd.assert_called_once()
+    generator._run_sprints.assert_called_once_with(0)
+
+
+def test_find_session_failure_ignores_error_recovered_by_retry():
+    messages = {
+        "data": [
+            {"id": "message-1", "type": "assistant", "finish": "error",
+             "error": {"message": "OpenAI Chat stream ended without finish_reason"}},
+            {"id": "message-2", "type": "synthetic"},
+            {"id": "message-3", "type": "assistant", "finish": "stop"},
+            {"id": "message-4", "type": "idle", "outcome": "succeeded"},
+        ]
+    }
+
+    assert AutomaticSolutionGenerator._find_session_failure(messages) is None
+
+
+def test_find_session_failure_reports_error_that_ends_session():
+    messages = {
+        "data": [
+            {"id": "message-1", "type": "assistant", "finish": "stop"},
+            {"id": "message-2", "type": "assistant", "finish": "error"},
+        ]
+    }
+
+    assert AutomaticSolutionGenerator._find_session_failure(messages)["id"] == "message-2"
+
+
+def test_process_ticket_asks_agent_to_fix_broken_ticket_json(generator):
+    path = write_ticket(
+        generator.get_tasks_path(),
+        {"id": "TASK-001", "status": "in-progress", "sprint": 0, "assignee": "web-developer"}
+    )
+    ticket = generator.load_tickets()[0]
+
+    def agent_breaks_json(agent, sprint, prompt, files):
+        path.write_text('{"id": "TASK-001", "result": "completed" "status": "in-progress"}',
+                        encoding="utf-8")
+        return {"data": {"id": "session-1"}}
+
+    def agent_fixes_json(session, agent, sprint, prompt, files):
+        payload = {"id": "TASK-001", "status": "in-progress", "sprint": 0,
+                   "assignee": "web-developer", "result": "completed"}
+        path.write_text(json.dumps(payload), encoding="utf-8")
+
+    generator.process = MagicMock(side_effect=agent_breaks_json)
+    generator._run_prompt = MagicMock(side_effect=agent_fixes_json)
+
+    assert generator._process_ticket(ticket, 0) is True
+
+    assert "no longer valid JSON" in generator._run_prompt.call_args.args[3]
+    assert read_ticket(generator, "TASK-001")["status"] == "in-review"
+
+
+def test_process_ticket_restores_ticket_left_broken_by_agent(generator):
+    path = write_ticket(
+        generator.get_tasks_path(),
+        {"id": "TASK-001", "status": "in-progress", "sprint": 0, "assignee": "web-developer"}
+    )
+    ticket = generator.load_tickets()[0]
+
+    def agent_breaks_json(agent, sprint, prompt, files):
+        path.write_text('{"id": "TASK-001" "status": "done"}', encoding="utf-8")
+        return {"data": {"id": "session-1"}}
+
+    generator.process = MagicMock(side_effect=agent_breaks_json)
+    generator._run_prompt = MagicMock()
+
+    assert generator._process_ticket(ticket, 0) is False
+    assert read_ticket(generator, "TASK-001")["status"] == "in-progress"
+
+
+def test_run_sprints_logs_summary_after_each_sprint(generator):
+    write_ticket(
+        generator.get_tasks_path(),
+        {"id": "TASK-001", "status": "backlog", "title": "Build web component"}
+    )
+    generator.process = MagicMock(side_effect=fake_process(generator, []))
+
+    generator._run_sprints()
+
+    logged = [call.args[1] for call in generator.logger.log.call_args_list]
+    summaries = [line for line in logged if line.startswith("Sprint ") and line.endswith("summary")]
+    assert summaries == [f"Sprint {sprint} summary" for sprint in range(4)]
+    assert any("1/1 (100.0%) done" in line for line in logged)
