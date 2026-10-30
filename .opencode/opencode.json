@@ -1,0 +1,247 @@
+{
+  "$schema": "https://opencode.ai/config.json",
+  "agent": {
+    "opencode-config-specialist": {
+      "description": "OpenCode Configuration Specialist - helps configure and manage agents, skills, MCP servers, and permissions. ALWAYS responds in English regardless of user's language.",
+      "mode": "primary",
+      "temperature": 0.1,
+      "steps": 10,
+      "permission": {
+        "edit": "allow",
+        "bash": "ask",
+        "read": "allow",
+        "skill": "allow",
+        "glob": "allow",
+        "grep": "allow",
+        "webfetch": "allow",
+        "websearch": "allow",
+        "question": "allow"
+      }
+    },
+    "product-manager": {
+      "description": "Product Manager for requirements gathering, user stories, roadmap planning, and product strategy",
+      "mode": "primary",
+      "temperature": 0.7,
+      "steps": 25,
+      "color": "#9C27B0",
+      "permission": {
+        "edit": "allow",
+        "bash": "deny",
+        "read": "allow",
+        "skill": "allow",
+        "glob": "allow",
+        "grep": "allow",
+        "webfetch": "allow",
+        "websearch": "allow",
+        "question": "deny"
+      }
+    },
+    "project-manager": {
+      "description": "Project Manager for PRD analysis and hierarchical task management",
+      "mode": "primary",
+      "temperature": 0.1,
+      "steps": 60,
+      "color": "#FF9800",
+      "permission": {
+        "edit": "allow",
+        "bash": "allow",
+        "read": "allow",
+        "skill": "allow",
+        "glob": "allow",
+        "grep": "allow",
+        "webfetch": "deny",
+        "websearch": "deny",
+        "question": "deny"
+      }
+    },
+    "software-architect": {
+      "description": "Software Architect for system design, technical decisions, and architecture guidelines",
+      "mode": "subagent",
+      "temperature": 0.1,
+      "steps": 25,
+      "color": "#3F51B5",
+      "permission": {
+        "edit": "allow",
+        "bash": "allow",
+        "read": "allow",
+        "skill": "allow",
+        "glob": "allow",
+        "grep": "allow"
+      }
+    },
+    "backend-developer": {
+      "description": "Backend Developer for server-side implementation, APIs, databases, and business logic",
+      "mode": "subagent",
+      "temperature": 0.1,
+      "steps": 40,
+      "color": "#4CAF50",
+      "permission": {
+        "edit": "allow",
+        "bash": "allow",
+        "read": "allow",
+        "skill": "allow",
+        "glob": "allow",
+        "grep": "allow"
+      }
+    },
+    "web-developer": {
+      "description": "Web Developer for frontend development, UI, client-side logic, and accessibility",
+      "mode": "subagent",
+      "temperature": 0.1,
+      "steps": 40,
+      "color": "#2196F3",
+      "permission": {
+        "edit": "allow",
+        "bash": "allow",
+        "read": "allow",
+        "skill": "allow",
+        "glob": "allow",
+        "grep": "allow"
+      }
+    },
+    "devops-engineer": {
+      "description": "DevOps Engineer for infrastructure, CI/CD pipelines, deployment, and cloud operations",
+      "mode": "subagent",
+      "temperature": 0.1,
+      "steps": 40,
+      "color": "#00BCD4",
+      "permission": {
+        "edit": "allow",
+        "bash": "allow",
+        "read": "allow",
+        "skill": "allow",
+        "glob": "allow",
+        "grep": "allow"
+      }
+    },
+    "qa-automation": {
+      "description": "QA Automation Engineer for automated testing, test frameworks, and CI/CD integration",
+      "mode": "subagent",
+      "temperature": 0.1,
+      "steps": 40,
+      "color": "#E91E63",
+      "permission": {
+        "edit": "allow",
+        "bash": "allow",
+        "read": "allow",
+        "skill": "allow",
+        "glob": "allow",
+        "grep": "allow"
+      }
+    },
+    "qa-manual": {
+      "description": "Manual QA Specialist for functional testing, UX verification, and exploratory testing",
+      "mode": "subagent",
+      "temperature": 0.1,
+      "steps": 40,
+      "color": "#9C27B0",
+      "permission": {
+        "edit": "allow",
+        "bash": "allow",
+        "read": "allow",
+        "skill": "allow",
+        "glob": "allow",
+        "grep": "allow"
+      }
+    },
+    "product-owner": {
+      "description": "Product Owner for backlog management, acceptance criteria, and sprint planning",
+      "mode": "subagent",
+      "temperature": 0.1,
+      "steps": 25,
+      "color": "#795548",
+      "permission": {
+        "edit": "allow",
+        "bash": "allow",
+        "read": "allow",
+        "skill": "allow",
+        "glob": "allow",
+        "grep": "allow"
+      }
+    },
+    "business-analyst": {
+      "description": "Business Analyst for detailed functional specifications, domain analysis, and edge case definition",
+      "mode": "subagent",
+      "temperature": 0.1,
+      "steps": 25,
+      "color": "#607D8B",
+      "permission": {
+        "edit": "allow",
+        "bash": "allow",
+        "read": "allow",
+        "skill": "allow",
+        "glob": "allow",
+        "grep": "allow"
+      }
+    },
+    "ui-designer": {
+      "description": "UI Designer for visual design, design systems, and component creation",
+      "mode": "subagent",
+      "temperature": 0.1,
+      "steps": 40,
+      "color": "#E91E63",
+      "permission": {
+        "edit": "allow",
+        "bash": "allow",
+        "read": "allow",
+        "skill": "allow",
+        "glob": "allow",
+        "grep": "allow"
+      }
+    },
+    "python-application-developer": {
+      "description": "Python Application Developer specialized in Clean Code, OOP, testing, and logging",
+      "mode": "primary",
+      "temperature": 0.1,
+      "steps": 15,
+      "color": "#3776AB",
+      "permission": {
+        "edit": "allow",
+        "bash": "ask",
+        "read": "allow",
+        "skill": "allow",
+        "glob": "allow",
+        "grep": "allow",
+        "webfetch": "ask",
+        "websearch": "ask",
+        "question": "allow"
+      }
+    }
+  },
+  "skill": {
+    "create-ticket": {
+      "enabled": true
+    },
+    "ticket-workflow": {
+      "enabled": true
+    },
+    "clean-code-review": {
+      "enabled": true
+    },
+    "docker-image-manager": {
+      "enabled": true
+    }
+  },
+  "command": {
+    "analyze-prd": {
+      "description": "Analyze a PRD and create hierarchical tickets",
+      "template": "Analyze the PRD document at $1 and create all hierarchical tickets in the target project directory",
+      "agent": "project-manager"
+    },
+    "create-epic": {
+      "description": "Create an epic and its child stories",
+      "template": "Create an epic for $1 with associated stories and tasks",
+      "agent": "project-manager"
+    },
+    "review-completed": {
+      "description": "Review and close completed tickets with evidence",
+      "template": "Review all completed tickets in the tasks directory and close those with sufficient evidence",
+      "agent": "project-manager"
+    },
+    "create-blocker": {
+      "description": "Create a blocker ticket when QA cannot proceed",
+      "template": "Create a blocker ticket for $1 that is preventing testing. Assign to devops-engineer",
+      "agent": "qa-automation"
+    }
+  }
+}
