@@ -27,6 +27,7 @@ SESSION_FAILURE_FINISH = "error"
 SESSION_FAILURE_OUTCOME = "failed"
 SESSION_SUCCESS_OUTCOME = "succeeded"
 DEFAULT_MAX_STALLED_SPRINTS = 3
+DEFAULT_MAX_RETRIES_PER_TICKET = 3
 PROJECT_MANAGER_AGENT = "project-manager"
 DEFAULT_GENERATION_FOLLOW_UPS = 2
 TICKET_RESULT_FOLLOW_UPS = 1
@@ -43,7 +44,15 @@ class AutomaticSolutionGenerator:
         self.agents: dict[str, Any] = {}
         self.project_path = os.path.abspath(str(config["project_path"]))
         self.ticket_repository = TicketRepository(self.get_tasks_path(), logger)
-        self.ticket_workflow = TicketWorkflow()
+        self.max_retries_per_ticket = int(
+            config.get(
+                "max_retries_per_ticket",
+                config.get("max_blocked_retries", DEFAULT_MAX_RETRIES_PER_TICKET)
+            )
+        )
+        self.ticket_workflow = TicketWorkflow(
+            max_retries_per_ticket=self.max_retries_per_ticket
+        )
         self.sprint_planner = SprintPlanner(
             self.ticket_repository,
             int(config.get("tasks_per_sprint", DEFAULT_TASKS_PER_SPRINT)),
@@ -415,7 +424,6 @@ class AutomaticSolutionGenerator:
         progress = False
         for ticket in pending_tickets:
             if self._unblock_ready_ticket(ticket, sprint):
-                progress = True
                 continue
             if self._process_ticket(ticket, sprint):
                 progress = True
@@ -431,7 +439,7 @@ class AutomaticSolutionGenerator:
         closed_ticket_ids = {
             str(loaded.get("id")) for loaded in self.load_tickets() if is_closed(loaded)
         }
-        if not self.ticket_workflow.is_processing_ready(ticket, closed_ticket_ids):
+        if not self.ticket_workflow.can_unblock(ticket, closed_ticket_ids):
             return False
         if not self.ticket_workflow.unblock(ticket):
             return False
@@ -497,7 +505,12 @@ class AutomaticSolutionGenerator:
         previous_status: Optional[str] = None
     ) -> bool:
         previous_status = previous_status or normalize_status(ticket.get("status"))
-        if not self.ticket_workflow.apply_completion(ticket, previous_status):
+        closed_ticket_ids = {
+            str(loaded.get("id")) for loaded in self.load_tickets() if is_closed(loaded)
+        }
+        if not self.ticket_workflow.apply_completion(
+            ticket, previous_status, closed_ticket_ids=closed_ticket_ids
+        ):
             self._discard_unregistered_status(ticket, previous_status)
             self.logger.log(
                 logging.WARNING,
@@ -511,7 +524,13 @@ class AutomaticSolutionGenerator:
             f"Ticket {ticket.get('filename')} moved from '{previous_status}' "
             f"to '{ticket.get('status')}' assigned to '{ticket.get('assignee')}'"
         )
-        return True
+        return self._is_forward_progress(previous_status, normalize_status(ticket.get("status")))
+
+    @staticmethod
+    def _is_forward_progress(previous_status: str, new_status: str) -> bool:
+        if new_status == STATUS_BLOCKED:
+            return False
+        return previous_status != new_status
 
     def _ticket_has_result(self, ticket: dict[str, Any]) -> bool:
         if self.ticket_repository.get_parse_error(ticket["filepath"]):

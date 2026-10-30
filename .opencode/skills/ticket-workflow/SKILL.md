@@ -97,8 +97,7 @@ only agent allowed to move it to `in-testing` or back to `in-progress`.
 2. Create a blocker ticket (`type: task` or `bug`) describing exactly what must be solved.
 3. Add the blocker ticket ID to the original ticket's `dependencies`.
 4. The `project-manager` assigns the blocker ticket to the agent that can solve it.
-5. When the blocker is `done`, the `project-manager` moves the original ticket back to `to-do`
-   or `in-progress` and reassigns it to the original assignee.
+5. When all dependencies are `done` (or when other project tickets complete), the orchestrator moves the ticket back to `to-do` up to `max_retries_per_ticket` (default 3). Blocked transitions and unblocking do not count as sprint progress for stalling limits.
 
 ## Done Gate
 

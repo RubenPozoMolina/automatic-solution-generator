@@ -563,3 +563,55 @@ def test_run_sprints_logs_summary_after_each_sprint(generator):
     summaries = [line for line in logged if line.startswith("Sprint ") and line.endswith("summary")]
     assert summaries == [f"Sprint {sprint} summary" for sprint in range(4)]
     assert any("1/1 (100.0%) done" in line for line in logged)
+
+
+def test_unblock_does_not_count_as_sprint_progress(generator):
+    write_ticket(
+        generator.get_tasks_path(),
+        {"id": "TASK-001", "status": "blocked", "sprint": 0, "dependencies": []}
+    )
+
+    # With no prior block history, unblock succeeds, but _advance_sprint_tickets reports no forward progress
+    progress = generator._advance_sprint_tickets(0)
+
+    assert progress is False
+    assert read_ticket(generator, "TASK-001")["status"] == "to-do"
+
+
+def test_process_ticket_blocking_does_not_count_as_progress(generator):
+    path = write_ticket(
+        generator.get_tasks_path(),
+        {"id": "TASK-001", "status": "to-do", "sprint": 0, "assignee": "web-developer"}
+    )
+    ticket = generator.load_tickets()[0]
+
+    def agent_blocks(agent, sprint, prompt, files):
+        payload = {"id": "TASK-001", "status": "to-do", "sprint": 0,
+                   "assignee": "web-developer", "result": "blocked"}
+        path.write_text(json.dumps(payload), encoding="utf-8")
+        return {"data": {"id": "session-1"}}
+
+    generator.process = MagicMock(side_effect=agent_blocks)
+    generator._run_prompt = MagicMock()
+
+    assert generator._process_ticket(ticket, 0) is False
+    assert read_ticket(generator, "TASK-001")["status"] == "blocked"
+
+
+def test_run_sprints_halts_when_ticket_cannot_unblock(generator):
+    generator.max_stalled_sprints = 2
+    write_ticket(
+        generator.get_tasks_path(),
+        {
+            "id": "TASK-001",
+            "status": "blocked",
+            "sprint": 0,
+            "statusHistory": [
+                {"from": "to-do", "to": "blocked", "closedTicketsAtBlock": []}
+            ]
+        }
+    )
+    generator.process = MagicMock()
+
+    with pytest.raises(SolutionGenerationError, match="2 consecutive sprints"):
+        generator._run_sprints(0)

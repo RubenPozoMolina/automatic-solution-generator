@@ -256,6 +256,11 @@ flowchart TD
     QA documents them in `resultEvidence` as `skipped-unsupported-platform` and reports `passed` / `passed-with-skips`
     for the executable criteria rather than blocking the ticket. If the session ends without `result`,
     the agent is asked once more in the same session before the phase counts as not completed.
+12. **Conditional unblocking and retry bounds.** A blocked ticket is unblocked by the orchestrator
+    (`blocked → to-do`) only when all its dependencies are closed, and (for tickets without dependencies)
+    when other tickets have completed since it was blocked, up to `max_retries_per_ticket` (default 3).
+    Transitions to `blocked` and unblock operations do not count as forward progress towards resetting
+    `max_stalled_sprints`, preventing infinite unblock loops.
 
 ## 9. Status update example
 

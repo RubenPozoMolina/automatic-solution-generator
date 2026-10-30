@@ -1,6 +1,12 @@
 import pytest
 
-from src.ticket_status import STATUS_BLOCKED, STATUS_IN_REVIEW, STATUS_IN_TESTING, STATUS_TO_DO
+from src.ticket_status import (
+    STATUS_BLOCKED,
+    STATUS_IN_PROGRESS,
+    STATUS_IN_REVIEW,
+    STATUS_IN_TESTING,
+    STATUS_TO_DO,
+)
 from src.ticket_workflow import TicketWorkflow
 
 
@@ -162,3 +168,36 @@ def test_testing_phase_completion_moves_to_done(workflow, result_value):
     assert ticket["statusHistory"][-1]["evidence"] == [
         "Safari skipped due to Linux host; Chrome and Firefox passed"
     ]
+
+
+def test_can_unblock_no_dependencies_returns_false_without_new_closed_tickets(workflow):
+    ticket = build_ticket(status="to-do", result="blocked", dependencies=[])
+    workflow.apply_completion(ticket, STATUS_TO_DO, closed_ticket_ids={"TASK-001"})
+
+    assert ticket["status"] == STATUS_BLOCKED
+    assert workflow.can_unblock(ticket, {"TASK-001"}) is False
+    assert workflow.is_processing_ready(ticket, {"TASK-001"}) is False
+
+
+def test_can_unblock_no_dependencies_returns_true_when_new_ticket_closed(workflow):
+    ticket = build_ticket(status="to-do", result="blocked", dependencies=[])
+    workflow.apply_completion(ticket, STATUS_TO_DO, closed_ticket_ids={"TASK-001"})
+
+    assert workflow.can_unblock(ticket, {"TASK-001", "TASK-002"}) is True
+    assert workflow.is_processing_ready(ticket, {"TASK-001", "TASK-002"}) is True
+
+
+def test_can_unblock_returns_false_when_max_retries_reached(workflow):
+    ticket = build_ticket(
+        status="blocked",
+        dependencies=[],
+        statusHistory=[
+            {"from": STATUS_BLOCKED, "to": STATUS_TO_DO},
+            {"from": STATUS_BLOCKED, "to": STATUS_TO_DO},
+            {"from": STATUS_BLOCKED, "to": STATUS_TO_DO},
+            {"from": STATUS_IN_PROGRESS, "to": STATUS_BLOCKED, "closedTicketsAtBlock": []},
+        ],
+    )
+
+    assert workflow.get_blocked_retry_count(ticket) == 3
+    assert workflow.can_unblock(ticket, {"TASK-001", "TASK-002"}) is False

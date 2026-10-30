@@ -17,6 +17,7 @@ DEFAULT_QA = "qa-automation"
 DEFAULT_IMPLEMENTER = "software-architect"
 EPIC_OWNER = "product-owner"
 PROJECT_MANAGER = "project-manager"
+DEFAULT_MAX_RETRIES_PER_TICKET = 3
 
 ASSIGNEE_KEYWORDS = (
     ("web-developer", (
@@ -88,8 +89,13 @@ PROMPT_BY_STATUS = {
 class TicketWorkflow:
     """Applies the ticket lifecycle transitions owned by the orchestrator."""
 
-    def __init__(self, project_manager: str = PROJECT_MANAGER):
+    def __init__(
+        self,
+        project_manager: str = PROJECT_MANAGER,
+        max_retries_per_ticket: int = DEFAULT_MAX_RETRIES_PER_TICKET,
+    ):
         self.project_manager = project_manager
+        self.max_retries_per_ticket = max_retries_per_ticket
 
     def get_assigned_agent(self, ticket: dict[str, Any]) -> Optional[str]:
         assignee = ticket.get("assignee") or ticket.get("implementedBy")
@@ -141,7 +147,12 @@ class TicketWorkflow:
     def has_result(ticket: dict[str, Any]) -> bool:
         return str(ticket.get("result") or "").strip().lower() in KNOWN_RESULTS
 
-    def apply_completion(self, ticket: dict[str, Any], previous_status: str) -> bool:
+    def apply_completion(
+        self,
+        ticket: dict[str, Any],
+        previous_status: str,
+        closed_ticket_ids: Optional[set[str]] = None
+    ) -> bool:
         target_status = self._resolve_target_status(ticket, previous_status)
         if target_status is None or target_status == previous_status:
             return False
@@ -149,17 +160,74 @@ class TicketWorkflow:
         actor = ticket.get("assignee") or "orchestrator"
         if previous_status in IMPLEMENTATION_STATUSES and not ticket.get("implementedBy"):
             ticket["implementedBy"] = ticket.get("assignee")
-        self.record_transition(ticket, previous_status, target_status, actor)
+        self.record_transition(
+            ticket,
+            previous_status,
+            target_status,
+            actor,
+            closed_ticket_ids=closed_ticket_ids
+        )
         ticket["status"] = target_status
         ticket["assignee"] = self._assignee_for_status(target_status, ticket)
         ticket.pop("result", None)
         ticket["updatedAt"] = self._now()
         return True
 
+    def get_blocked_retry_count(self, ticket: dict[str, Any]) -> int:
+        history = ticket.get("statusHistory") or []
+        return sum(1 for entry in history if entry.get("from") == STATUS_BLOCKED)
+
+    @staticmethod
+    def _last_blocked_entry(ticket: dict[str, Any]) -> Optional[dict[str, Any]]:
+        for entry in reversed(ticket.get("statusHistory") or []):
+            if entry.get("to") == STATUS_BLOCKED:
+                return entry
+        return None
+
+    def can_unblock(
+        self,
+        ticket: dict[str, Any],
+        closed_ticket_ids: set[str]
+    ) -> bool:
+        if normalize_status(ticket.get("status")) != STATUS_BLOCKED:
+            return False
+        if not self._dependencies_are_closed(ticket, closed_ticket_ids):
+            return False
+        if self.get_blocked_retry_count(ticket) >= self.max_retries_per_ticket:
+            return False
+
+        last_blocked = self._last_blocked_entry(ticket)
+        if not last_blocked:
+            return True
+
+        dependencies_at_block = last_blocked.get("dependenciesAtBlock")
+        if dependencies_at_block is not None:
+            closed_at_block = set(last_blocked.get("closedTicketsAtBlock") or [])
+            had_unmet_deps = any(
+                str(dep) not in closed_at_block for dep in dependencies_at_block
+            )
+            if had_unmet_deps:
+                return True
+
+        if last_blocked.get("closedTicketsAtBlock") is not None:
+            closed_at_block = set(last_blocked.get("closedTicketsAtBlock") or [])
+            newly_closed = closed_ticket_ids - closed_at_block
+            return len(newly_closed) > 0
+
+        if not ticket.get("dependencies"):
+            return False
+        return True
+
     def unblock(self, ticket: dict[str, Any]) -> bool:
         if normalize_status(ticket.get("status")) != STATUS_BLOCKED:
             return False
-        self.record_transition(ticket, STATUS_BLOCKED, STATUS_TO_DO, self.project_manager)
+        self.record_transition(
+            ticket,
+            STATUS_BLOCKED,
+            STATUS_TO_DO,
+            self.project_manager,
+            "Unblocked for sprint retry"
+        )
         ticket["status"] = STATUS_TO_DO
         ticket["assignee"] = (
             ticket.get("implementedBy") or ticket.get("assignee")
@@ -174,6 +242,8 @@ class TicketWorkflow:
     ) -> bool:
         if is_closed(ticket) or self.is_epic(ticket):
             return False
+        if normalize_status(ticket.get("status")) == STATUS_BLOCKED:
+            return self.can_unblock(ticket, closed_ticket_ids)
         return self._dependencies_are_closed(ticket, closed_ticket_ids)
 
     @staticmethod
@@ -264,19 +334,23 @@ class TicketWorkflow:
         previous_status: Optional[str],
         target_status: str,
         actor: str,
-        reason: Optional[str] = None
+        reason: Optional[str] = None,
+        closed_ticket_ids: Optional[set[str]] = None
     ) -> None:
         history = list(ticket.get("statusHistory") or [])
-        history.append(
-            {
-                "from": previous_status,
-                "to": target_status,
-                "actor": actor,
-                "timestamp": self._now(),
-                "reason": reason or str(ticket.get("result") or "Phase completed"),
-                "evidence": list(ticket.get("resultEvidence") or []),
-            }
-        )
+        entry: dict[str, Any] = {
+            "from": previous_status,
+            "to": target_status,
+            "actor": actor,
+            "timestamp": self._now(),
+            "reason": reason or str(ticket.get("result") or "Phase completed"),
+            "evidence": list(ticket.get("resultEvidence") or []),
+        }
+        if target_status == STATUS_BLOCKED:
+            if closed_ticket_ids is not None:
+                entry["closedTicketsAtBlock"] = sorted(list(closed_ticket_ids))
+            entry["dependenciesAtBlock"] = list(ticket.get("dependencies") or [])
+        history.append(entry)
         ticket["statusHistory"] = history
 
     @staticmethod
