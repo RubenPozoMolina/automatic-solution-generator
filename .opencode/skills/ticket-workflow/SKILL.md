@@ -98,6 +98,7 @@ only agent allowed to move it to `in-testing` or back to `in-progress`.
 3. Add the blocker ticket ID to the original ticket's `dependencies`.
 4. The `project-manager` assigns the blocker ticket to the agent that can solve it.
 5. When all dependencies are `done` (or when other project tickets complete), the orchestrator moves the ticket back to `to-do` up to `max_retries_per_ticket` (default 3). Blocked transitions and unblocking do not count as sprint progress for stalling limits.
+6. The orchestrator automatically compacts `statusHistory` to the most recent transitions (`max_status_history`, default 10) while preserving retry metadata to avoid token context saturation.
 
 ## Done Gate
 

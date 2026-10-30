@@ -261,6 +261,10 @@ flowchart TD
     when other tickets have completed since it was blocked, up to `max_retries_per_ticket` (default 3).
     Transitions to `blocked` and unblock operations do not count as forward progress towards resetting
     `max_stalled_sprints`, preventing infinite unblock loops.
+13. **Compacted status history.** To prevent unbounded growth of ticket JSON files and avoid token context
+    exhaustion across multi-sprint workflows, `statusHistory` is automatically trimmed to the last $N$
+    transitions (`max_status_history`, default 10). Critical lifecycle counters (such as `blockedRetryCount`)
+    are persisted independently on the ticket to guarantee consistency.
 
 ## 9. Status update example
 

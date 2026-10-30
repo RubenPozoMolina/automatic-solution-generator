@@ -201,3 +201,58 @@ def test_can_unblock_returns_false_when_max_retries_reached(workflow):
 
     assert workflow.get_blocked_retry_count(ticket) == 3
     assert workflow.can_unblock(ticket, {"TASK-001", "TASK-002"}) is False
+
+
+def test_record_transition_trims_status_history_when_exceeding_max(workflow):
+    ticket = build_ticket(status="to-do")
+    workflow.max_status_history = 3
+
+    for i in range(5):
+        workflow.record_transition(
+            ticket,
+            "phase-a",
+            "phase-b",
+            "agent",
+            f"Transition {i}",
+        )
+
+    assert len(ticket["statusHistory"]) == 3
+    assert [entry["reason"] for entry in ticket["statusHistory"]] == [
+        "Transition 2",
+        "Transition 3",
+        "Transition 4",
+    ]
+
+
+def test_trim_history_disabled_when_zero_or_negative():
+    workflow = TicketWorkflow(max_status_history=0)
+    ticket = build_ticket(status="to-do")
+
+    for i in range(15):
+        workflow.record_transition(
+            ticket,
+            "phase-a",
+            "phase-b",
+            "agent",
+            f"Transition {i}",
+        )
+
+    assert len(ticket["statusHistory"]) == 15
+
+
+def test_retry_count_persists_even_when_history_is_trimmed():
+    workflow = TicketWorkflow(max_retries_per_ticket=3, max_status_history=2)
+    ticket = build_ticket(status="blocked")
+
+    # Perform unblock 3 times
+    for _ in range(3):
+        ticket["status"] = STATUS_BLOCKED
+        assert workflow.unblock(ticket) is True
+
+    # History only keeps the last 2 entries
+    assert len(ticket["statusHistory"]) == 2
+    # But retry count tracks all 3 retries
+    assert workflow.get_blocked_retry_count(ticket) == 3
+    # Therefore, further unblocks are disallowed by retry limit
+    ticket["status"] = STATUS_BLOCKED
+    assert workflow.can_unblock(ticket, {"TASK-999"}) is False

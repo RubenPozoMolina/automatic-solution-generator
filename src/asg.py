@@ -28,6 +28,7 @@ SESSION_FAILURE_OUTCOME = "failed"
 SESSION_SUCCESS_OUTCOME = "succeeded"
 DEFAULT_MAX_STALLED_SPRINTS = 3
 DEFAULT_MAX_RETRIES_PER_TICKET = 3
+DEFAULT_MAX_STATUS_HISTORY = 10
 PROJECT_MANAGER_AGENT = "project-manager"
 DEFAULT_GENERATION_FOLLOW_UPS = 2
 TICKET_RESULT_FOLLOW_UPS = 1
@@ -50,8 +51,15 @@ class AutomaticSolutionGenerator:
                 config.get("max_blocked_retries", DEFAULT_MAX_RETRIES_PER_TICKET)
             )
         )
+        self.max_status_history = int(
+            config.get(
+                "max_status_history",
+                config.get("max_history_entries", DEFAULT_MAX_STATUS_HISTORY)
+            )
+        )
         self.ticket_workflow = TicketWorkflow(
-            max_retries_per_ticket=self.max_retries_per_ticket
+            max_retries_per_ticket=self.max_retries_per_ticket,
+            max_status_history=self.max_status_history,
         )
         self.sprint_planner = SprintPlanner(
             self.ticket_repository,

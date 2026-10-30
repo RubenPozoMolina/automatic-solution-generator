@@ -18,6 +18,7 @@ DEFAULT_IMPLEMENTER = "software-architect"
 EPIC_OWNER = "product-owner"
 PROJECT_MANAGER = "project-manager"
 DEFAULT_MAX_RETRIES_PER_TICKET = 3
+DEFAULT_MAX_STATUS_HISTORY = 10
 
 ASSIGNEE_KEYWORDS = (
     ("web-developer", (
@@ -93,9 +94,11 @@ class TicketWorkflow:
         self,
         project_manager: str = PROJECT_MANAGER,
         max_retries_per_ticket: int = DEFAULT_MAX_RETRIES_PER_TICKET,
+        max_status_history: int = DEFAULT_MAX_STATUS_HISTORY,
     ):
         self.project_manager = project_manager
         self.max_retries_per_ticket = max_retries_per_ticket
+        self.max_status_history = max_status_history
 
     def get_assigned_agent(self, ticket: dict[str, Any]) -> Optional[str]:
         assignee = ticket.get("assignee") or ticket.get("implementedBy")
@@ -175,7 +178,8 @@ class TicketWorkflow:
 
     def get_blocked_retry_count(self, ticket: dict[str, Any]) -> int:
         history = ticket.get("statusHistory") or []
-        return sum(1 for entry in history if entry.get("from") == STATUS_BLOCKED)
+        count_from_history = sum(1 for entry in history if entry.get("from") == STATUS_BLOCKED)
+        return max(int(ticket.get("blockedRetryCount") or 0), count_from_history)
 
     @staticmethod
     def _last_blocked_entry(ticket: dict[str, Any]) -> Optional[dict[str, Any]]:
@@ -221,6 +225,7 @@ class TicketWorkflow:
     def unblock(self, ticket: dict[str, Any]) -> bool:
         if normalize_status(ticket.get("status")) != STATUS_BLOCKED:
             return False
+        ticket["blockedRetryCount"] = self.get_blocked_retry_count(ticket) + 1
         self.record_transition(
             ticket,
             STATUS_BLOCKED,
@@ -328,6 +333,14 @@ class TicketWorkflow:
         dependencies = ticket.get("dependencies") or []
         return all(str(dependency) in closed_ticket_ids for dependency in dependencies)
 
+    def trim_history(self, ticket: dict[str, Any]) -> None:
+        """Trims statusHistory to the most recent max_status_history entries."""
+        if self.max_status_history <= 0:
+            return
+        history = list(ticket.get("statusHistory") or [])
+        if len(history) > self.max_status_history:
+            ticket["statusHistory"] = history[-self.max_status_history:]
+
     def record_transition(
         self,
         ticket: dict[str, Any],
@@ -352,6 +365,7 @@ class TicketWorkflow:
             entry["dependenciesAtBlock"] = list(ticket.get("dependencies") or [])
         history.append(entry)
         ticket["statusHistory"] = history
+        self.trim_history(ticket)
 
     @staticmethod
     def _now() -> str:

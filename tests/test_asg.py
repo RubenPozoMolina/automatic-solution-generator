@@ -1,6 +1,6 @@
 import json
 from pathlib import Path
-from unittest.mock import MagicMock
+from unittest.mock import MagicMock, patch
 
 import pytest
 
@@ -615,3 +615,18 @@ def test_run_sprints_halts_when_ticket_cannot_unblock(generator):
 
     with pytest.raises(SolutionGenerationError, match="2 consecutive sprints"):
         generator._run_sprints(0)
+
+
+def test_generator_configures_max_status_history():
+    logger = MagicMock()
+    config = {
+        "project_path": "/tmp/test-project",
+        "opencode_base_url": "http://localhost:4096",
+        "opencode_user": "user",
+        "opencode_password": "pwd",
+        "max_status_history": 5,
+    }
+    with patch("src.asg.OpencodeAPI"):
+        gen = AutomaticSolutionGenerator(config, logger)
+        assert gen.max_status_history == 5
+        assert gen.ticket_workflow.max_status_history == 5
