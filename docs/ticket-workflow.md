@@ -250,8 +250,12 @@ flowchart TD
     to backlog so the slot goes to ready work. The `backlog → to-do` history entry is recorded
     by the orchestrator.
 11. **The result is the only signal.** Agents write `result` + `resultEvidence`; a status changed
-    by an agent without `result` is reverted. If the session ends without `result`, the agent is
-    asked once more in the same session before the phase counts as not completed.
+    by an agent without `result` is reverted. Supported results include `completed`, `blocked`,
+    `changes-requested`, `failed`, `passed`, `passed-with-skips`, `skipped-unsupported-platform`, and `done`.
+    If acceptance criteria cannot be executed due to host platform limitations (e.g., Apple Safari on Linux),
+    QA documents them in `resultEvidence` as `skipped-unsupported-platform` and reports `passed` / `passed-with-skips`
+    for the executable criteria rather than blocking the ticket. If the session ends without `result`,
+    the agent is asked once more in the same session before the phase counts as not completed.
 
 ## 9. Status update example
 

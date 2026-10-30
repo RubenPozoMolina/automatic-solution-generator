@@ -40,15 +40,24 @@ RESULT_BLOCKED = "blocked"
 RESULT_CHANGES_REQUESTED = "changes-requested"
 RESULT_FAILED = "failed"
 RESULT_PASSED = "passed"
+RESULT_PASSED_WITH_SKIPS = "passed-with-skips"
+RESULT_SKIPPED_UNSUPPORTED = "skipped-unsupported-platform"
 RESULT_DONE = "done"
-COMPLETED_RESULTS = frozenset({RESULT_COMPLETED, RESULT_PASSED, RESULT_DONE})
+COMPLETED_RESULTS = frozenset({
+    RESULT_COMPLETED,
+    RESULT_PASSED,
+    RESULT_PASSED_WITH_SKIPS,
+    RESULT_SKIPPED_UNSUPPORTED,
+    RESULT_DONE,
+})
 BLOCKING_RESULTS = frozenset({RESULT_BLOCKED})
 REWORK_RESULTS = frozenset({RESULT_CHANGES_REQUESTED, RESULT_FAILED})
 KNOWN_RESULTS = COMPLETED_RESULTS | BLOCKING_RESULTS | REWORK_RESULTS
 IMPLEMENTATION_STATUSES = frozenset({STATUS_TO_DO, STATUS_IN_PROGRESS})
 RESULT_INSTRUCTIONS = (
     "write a 'result' field in the ticket JSON "
-    "(completed, blocked, changes-requested, failed, passed or done) and list your evidence "
+    "(completed, blocked, changes-requested, failed, passed, passed-with-skips, "
+    "skipped-unsupported-platform or done) and list your evidence "
     "(files, commits, test reports) in 'resultEvidence'. Do not change 'status', 'assignee' "
     "or 'statusHistory': the orchestrator applies the transition."
 )
@@ -65,7 +74,13 @@ PROMPT_BY_STATUS = {
     STATUS_TO_DO: "Start implementing the ticket.",
     STATUS_IN_PROGRESS: "Continue the implementation and finish the pending work.",
     STATUS_IN_REVIEW: "Review the implementation and decide: approve or request changes.",
-    STATUS_IN_TESTING: "Verify the acceptance criteria and decide: pass or fail.",
+    STATUS_IN_TESTING: (
+        "Verify the acceptance criteria and decide: pass or fail. "
+        "If certain criteria cannot be executed due to host platform or OS limitations "
+        "(e.g., unsupported browsers or platform-specific tools), document them as "
+        "skipped-unsupported-platform in resultEvidence and pass the executable criteria "
+        "rather than blocking the ticket."
+    ),
     STATUS_BLOCKED: "Check whether the blocking dependency is resolved before continuing.",
 }
 

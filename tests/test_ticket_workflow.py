@@ -141,3 +141,24 @@ def test_prompt_does_not_ask_agent_to_change_status(workflow):
 
     assert "move it to in progress" not in prompt
     assert "Do not change 'status'" in prompt
+
+
+@pytest.mark.parametrize(
+    "result_value",
+    ["passed", "passed-with-skips", "skipped-unsupported-platform"],
+)
+def test_testing_phase_completion_moves_to_done(workflow, result_value):
+    ticket = build_ticket(
+        status=STATUS_IN_TESTING,
+        assignee="qa-automation",
+        result=result_value,
+        resultEvidence=["Safari skipped due to Linux host; Chrome and Firefox passed"],
+    )
+
+    assert workflow.apply_completion(ticket, STATUS_IN_TESTING) is True
+    assert ticket["status"] == "done"
+    assert ticket["assignee"] is None
+    assert ticket["statusHistory"][-1]["to"] == "done"
+    assert ticket["statusHistory"][-1]["evidence"] == [
+        "Safari skipped due to Linux host; Chrome and Firefox passed"
+    ]

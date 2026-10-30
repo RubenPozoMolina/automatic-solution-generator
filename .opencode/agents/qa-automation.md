@@ -169,6 +169,7 @@ When automated tests find bugs:
 
 - Do NOT skip tests for convenience
 - Do NOT hide or ignore failing tests
+- If an acceptance criterion depends on an unsupported host platform or OS (e.g. Apple Safari on Linux), mark the criterion as `skipped-unsupported-platform` with clear justification in `resultEvidence` rather than blocking the ticket
 - Always maintain test readability
 - Do NOT test private implementation details
 - Keep test data separated from production
@@ -188,4 +189,4 @@ When the orchestrator sends you a ticket, its prompt is the source of truth:
 4. Do **not** edit `status`, `assignee` or `statusHistory`: the orchestrator applies the
    transition and records the history.
 
-Results for your phase: `passed` when every acceptance criterion is verified (the orchestrator then closes the ticket), `failed` when any criterion fails (describe the failure in `resultEvidence`), `blocked` when the environment prevents testing.
+Results for your phase: `passed` (or `passed-with-skips`) when every executable acceptance criterion is verified (the orchestrator then closes the ticket; note any platform-incompatible criteria as `skipped-unsupported-platform` in `resultEvidence`), `failed` when any executable criterion fails (describe the failure in `resultEvidence`), `blocked` when an external blocker or missing dependency prevents testing.

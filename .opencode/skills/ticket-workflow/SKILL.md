@@ -55,7 +55,7 @@ When the prompt says the orchestrator applies the transition, the orchestrator o
 `assignee` and `statusHistory`. In that case the executing agent must **not** edit those fields.
 When its phase is finished it writes:
 
-- `result`: `completed`, `blocked`, `changes-requested`, `failed`, `passed` or `done`
+- `result`: `completed`, `blocked`, `changes-requested`, `failed`, `passed`, `passed-with-skips`, `skipped-unsupported-platform` or `done`
 - `resultEvidence`: list of evidence (files, commits, test reports)
 
 A phase whose `result` is not written does not count and is repeated in the next sprint.
@@ -112,8 +112,9 @@ only agent allowed to move it to `in-testing` or back to `in-progress`.
 QA does **not** set `done`. QA records the result, updates the evidence and reassigns the ticket
 to `project-manager` while leaving the status in `in-testing`.
 
-In orchestrated runs QA only writes `result: passed` or `result: failed` plus `resultEvidence`;
-the orchestrator closes the ticket on `passed` and sends it back to the implementer on `failed`.
+In orchestrated runs QA writes `result: passed` (or `passed-with-skips` / `skipped-unsupported-platform`) or `result: failed` plus `resultEvidence`;
+the orchestrator closes the ticket on `passed` (or `passed-with-skips` / `skipped-unsupported-platform`) and sends it back to the implementer on `failed`.
+Criteria that cannot be executed due to host platform limitations (e.g. Apple Safari on Linux) should be marked in `resultEvidence` as `skipped-unsupported-platform` with explanation, without blocking the ticket.
 
 ## Required Ticket Fields
 
