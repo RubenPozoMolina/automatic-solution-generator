@@ -71,8 +71,8 @@ model: "provider/model-name"
 | `max_stalled_sprints` | int | Consecutive sprints without progress before aborting (default `3`) |
 | `generation_follow_ups` | int | Follow-up prompts when the PRD or tickets are missing after a session (default `2`) |
 | `session_timeout` | number | Seconds to wait for an agent session; on expiry it is interrupted and the ticket phase is retried next sprint (default `1800`) |
-| `repository` | string | Optional Git remote of the generated project (e.g., `git@github.com:user/app.git`). The project is initialized as a repository with this `origin`, agents follow the `trunk-based-development` skill, and the orchestrator commits and pushes to the trunk after each completed ticket phase |
-| `repository_branch` | string | Trunk branch used with `repository` (default `main`) |
+| `repository` | string | Optional Git remote of the generated project (e.g., `git@github.com:user/app.git`). The project is initialized as a repository with this `origin`, agents follow the `trunk-based-development` skill, and each ticket works on a short-lived branch `ticket/<ID>` that the orchestrator pushes after each completed phase and rebases and fast-forwards into the trunk only when the ticket is `done` (the branch is then deleted) |
+| `repository_branch` | string | Trunk branch used with `repository`. When omitted, the default branch of the remote is used if it exists, otherwise `main` |
 | `resume` | bool | Reuse an existing PRD and tickets and continue from the latest sprint (default `true`); set `false` or delete the project directory to start over |
 
 ## Usage

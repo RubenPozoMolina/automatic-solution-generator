@@ -349,6 +349,27 @@ def test_run_sprints_moves_ticket_one_status_per_sprint_until_done(generator):
     assert read_ticket(generator, "TASK-001")["status"] == "done"
 
 
+def test_run_sprints_starts_children_that_depend_on_their_own_epic(generator):
+    write_ticket(
+        generator.get_tasks_path(),
+        {"id": "EPIC-001", "type": "epic", "status": "backlog", "dependencies": []}
+    )
+    write_ticket(
+        generator.get_tasks_path(),
+        {
+            "id": "STORY-001", "type": "story", "status": "backlog", "title": "Build web component",
+            "parentId": "EPIC-001", "dependencies": ["EPIC-001"],
+        }
+    )
+    ticket_calls = []
+    generator.process = MagicMock(side_effect=fake_process(generator, ticket_calls))
+
+    generator._run_sprints()
+
+    assert read_ticket(generator, "STORY-001")["status"] == "done"
+    assert read_ticket(generator, "EPIC-001")["status"] == "done"
+
+
 def test_run_sprints_raises_after_consecutive_stalled_sprints(generator):
     generator.max_stalled_sprints = 2
     write_ticket(
@@ -680,4 +701,23 @@ def test_completed_ticket_phase_is_published_to_the_repository(generator):
 
     assert generator._advance_sprint_tickets(0) is True
 
-    generator.project_repository.publish.assert_called_once_with("TASK-001: to-do -> in-review")
+    generator.project_repository.start_ticket.assert_called_once_with("TASK-001")
+    generator.project_repository.publish.assert_called_once_with(
+        "TASK-001", "TASK-001: to-do -> in-review", integrate=False
+    )
+
+
+def test_ticket_is_integrated_into_the_trunk_only_when_it_is_done(generator):
+    write_ticket(
+        generator.get_tasks_path(),
+        {"id": "TASK-001", "status": "in-testing", "sprint": 0, "assignee": "qa-automation"}
+    )
+    generator.process = MagicMock(side_effect=fake_process(generator, []))
+    generator.project_repository = MagicMock()
+    generator.project_repository.get_agent_instructions.return_value = ""
+
+    assert generator._advance_sprint_tickets(0) is True
+
+    generator.project_repository.publish.assert_called_once_with(
+        "TASK-001", "TASK-001: in-testing -> done", integrate=True
+    )

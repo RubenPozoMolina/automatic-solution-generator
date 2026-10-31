@@ -19,6 +19,11 @@ def repository(tasks_path, logger):
     return TicketRepository(str(tasks_path), logger)
 
 
+@pytest.fixture
+def planner(repository, logger):
+    return SprintPlanner(repository, tasks_per_sprint=5, logger=logger)
+
+
 def write_ticket(tasks_path, ticket):
     path = tasks_path / f"{ticket['id']}.json"
     path.write_text(json.dumps(ticket), encoding="utf-8")
@@ -250,3 +255,65 @@ def test_release_unready_tickets_frees_only_unstarted_tickets(tasks_path, reposi
     assert read_ticket(tasks_path, "TASK-003")["status"] == "blocked"
     assert read_ticket(tasks_path, "TASK-004")["status"] == "to-do"
     assert planner.get_capacity() == 2
+
+
+def read_ticket(tasks_path, ticket_id):
+    return json.loads((tasks_path / f"{ticket_id}.json").read_text(encoding="utf-8"))
+
+
+@pytest.mark.parametrize("parent_field", ["parent", "parentId"])
+def test_remove_ancestor_dependencies_drops_dependencies_on_own_parents(
+    repository, tasks_path, planner, parent_field
+):
+    write_ticket(tasks_path, build_ticket("EPIC-001", ticket_type="epic"))
+    write_ticket(tasks_path, build_ticket("EPIC-002", ticket_type="epic", dependencies=["EPIC-001"]))
+    story = build_ticket("STORY-001", ticket_type="story", dependencies=["EPIC-001", "EPIC-002"])
+    story[parent_field] = "EPIC-002"
+    write_ticket(tasks_path, story)
+    task = build_ticket("TASK-001", dependencies=["STORY-001", "EPIC-002", "EPIC-001"])
+    task[parent_field] = "STORY-001"
+    write_ticket(tasks_path, task)
+
+    fixed_tickets = planner.remove_ancestor_dependencies()
+
+    assert len(fixed_tickets) == 2
+    assert read_ticket(tasks_path, "EPIC-002")["dependencies"] == ["EPIC-001"]
+    assert read_ticket(tasks_path, "STORY-001")["dependencies"] == ["EPIC-001"]
+    assert read_ticket(tasks_path, "TASK-001")["dependencies"] == ["EPIC-001"]
+
+
+def test_remove_ancestor_dependencies_keeps_unrelated_dependencies(
+    repository, tasks_path, planner
+):
+    write_ticket(tasks_path, build_ticket("TASK-001"))
+    task = build_ticket("TASK-002", dependencies=["TASK-001"])
+    task["parentId"] = "EPIC-001"
+    write_ticket(tasks_path, task)
+
+    assert planner.remove_ancestor_dependencies() == []
+    assert read_ticket(tasks_path, "TASK-002")["dependencies"] == ["TASK-001"]
+
+
+def test_remove_ancestor_dependencies_survives_parent_cycles(repository, tasks_path, planner):
+    first = build_ticket("TASK-001", dependencies=["TASK-002"])
+    first["parentId"] = "TASK-002"
+    second = build_ticket("TASK-002", dependencies=["TASK-001"])
+    second["parentId"] = "TASK-001"
+    write_ticket(tasks_path, first)
+    write_ticket(tasks_path, second)
+
+    assert len(planner.remove_ancestor_dependencies()) == 2
+
+
+def test_planner_plans_children_after_removing_dependencies_on_their_epic(
+    repository, tasks_path, planner
+):
+    write_ticket(tasks_path, build_ticket("EPIC-001", ticket_type="epic"))
+    story = build_ticket("STORY-001", ticket_type="story", dependencies=["EPIC-001"])
+    story["parentId"] = "EPIC-001"
+    write_ticket(tasks_path, story)
+    assert planner.plan(0) == []
+
+    planner.remove_ancestor_dependencies()
+
+    assert [ticket["id"] for ticket in planner.plan(0)] == ["STORY-001"]

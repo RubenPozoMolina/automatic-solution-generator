@@ -4,7 +4,7 @@ import os
 from typing import Any, Callable, Iterable, Optional, Union
 
 from src.errors import SessionTimeoutError, SolutionGenerationError
-from src.project_repository import DEFAULT_TRUNK_BRANCH, ProjectRepository
+from src.project_repository import ProjectRepository
 from src.sprint_planner import SprintPlanner
 from src.sprint_report import SprintReport
 from src.ticket_repository import TicketRepository
@@ -50,7 +50,7 @@ class AutomaticSolutionGenerator:
             self.project_path,
             config.get("repository"),
             logger,
-            str(config.get("repository_branch", DEFAULT_TRUNK_BRANCH))
+            str(config["repository_branch"]) if config.get("repository_branch") else None
         )
         self.max_retries_per_ticket = int(
             config.get(
@@ -301,6 +301,7 @@ class AutomaticSolutionGenerator:
         stalled_sprints = 0
         while True:
             self.logger.log(logging.INFO, f"Starting sprint {sprint}")
+            self.sprint_planner.remove_ancestor_dependencies()
             statuses_before = SprintReport.snapshot(self.load_tickets())
             self.sprint_planner.release_unready_tickets(sprint)
             planned_tickets = self._plan_sprint(sprint)
@@ -478,6 +479,8 @@ class AutomaticSolutionGenerator:
             return False
 
         self._persist_inferred_assignee(ticket, agent)
+        ticket_id = self._get_ticket_identifier(ticket)
+        self.project_repository.start_ticket(ticket_id)
         try:
             self._process_until(
                 agent,
@@ -501,14 +504,21 @@ class AutomaticSolutionGenerator:
         moved = self._save_ticket_transition(updated_ticket, sprint, previous_status)
         if moved:
             self.project_repository.publish(
-                f"{updated_ticket.get('id', updated_ticket.get('filename'))}: "
-                f"{previous_status} -> {updated_ticket.get('status')}"
+                ticket_id,
+                f"{ticket_id}: {previous_status} -> {updated_ticket.get('status')}",
+                integrate=is_closed(updated_ticket)
             )
         return moved
 
+    @staticmethod
+    def _get_ticket_identifier(ticket: dict[str, Any]) -> str:
+        return str(ticket.get("id") or ticket.get("filename"))
+
     def _build_ticket_prompt(self, ticket: dict[str, Any], sprint: int) -> str:
         prompt = self.ticket_workflow.build_prompt(ticket, sprint)
-        repository_instructions = self.project_repository.get_agent_instructions()
+        repository_instructions = self.project_repository.get_agent_instructions(
+            self._get_ticket_identifier(ticket)
+        )
         if not repository_instructions:
             return prompt
         return f"{prompt} {repository_instructions}"

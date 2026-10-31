@@ -19,6 +19,7 @@ DEFAULT_PRIORITY_RANK = len(PRIORITY_RANKS)
 TICKET_TYPE_RANKS = {"task": 0, "subtask": 1, "story": 2, "epic": 3}
 DEFAULT_TYPE_RANK = len(TICKET_TYPE_RANKS)
 NON_EXECUTABLE_TICKET_TYPES = frozenset({"epic"})
+PARENT_FIELDS = ("parent", "parentId")
 
 
 class SprintPlanner:
@@ -50,6 +51,52 @@ class SprintPlanner:
 
     def get_capacity(self) -> int:
         return max(self.tasks_per_sprint - len(self.get_open_tickets()), 0)
+
+    def remove_ancestor_dependencies(self) -> list[dict[str, Any]]:
+        """Drops dependencies on a ticket's own parent chain.
+
+        A parent only closes when all its children are done, so a child that depends on its
+        own parent (or grandparent) can never start.
+        """
+        tickets = self.repository.load_tickets()
+        tickets_by_id = {str(ticket.get("id")): ticket for ticket in tickets}
+        fixed_tickets = []
+        for ticket in tickets:
+            ancestor_ids = self._get_ancestor_ids(ticket, tickets_by_id)
+            dependencies = ticket.get("dependencies") or []
+            kept = [dependency for dependency in dependencies if str(dependency) not in ancestor_ids]
+            if len(kept) == len(dependencies):
+                continue
+            ticket["dependencies"] = kept
+            self.repository.save_ticket(ticket)
+            fixed_tickets.append(ticket)
+            self.logger.log(
+                logging.WARNING,
+                f"Removed dependencies of {self.ticket_key(ticket)} on its own parents "
+                f"({sorted(set(map(str, dependencies)) - set(map(str, kept)))}): "
+                f"a parent cannot close before its children"
+            )
+        return fixed_tickets
+
+    @staticmethod
+    def _get_parent_id(ticket: dict[str, Any]) -> Optional[str]:
+        for field in PARENT_FIELDS:
+            if ticket.get(field):
+                return str(ticket[field])
+        return None
+
+    @staticmethod
+    def _get_ancestor_ids(
+        ticket: dict[str, Any],
+        tickets_by_id: dict[str, dict[str, Any]]
+    ) -> set[str]:
+        ancestor_ids: set[str] = set()
+        parent_id = SprintPlanner._get_parent_id(ticket)
+        while parent_id and parent_id not in ancestor_ids:
+            ancestor_ids.add(parent_id)
+            parent = tickets_by_id.get(parent_id)
+            parent_id = SprintPlanner._get_parent_id(parent) if parent else None
+        return ancestor_ids
 
     def release_unready_tickets(self, sprint: int) -> list[dict[str, Any]]:
         """Returns to backlog the to-do tickets that cannot start because of open dependencies."""
