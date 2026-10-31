@@ -41,6 +41,8 @@ def build_ticket(**overrides):
         ({"type": "task", "title": "Write tests", "description": "playwright coverage"}, "qa-automation"),
         ({"type": "task", "title": "Import PostgreSQL schema", "description": "web form"}, "database-expert"),
         ({"type": "task", "title": "Generate DDL", "description": "export diagram"}, "database-expert"),
+        ({"type": "task", "title": "Vulnerability assessment of the API"}, "security-expert"),
+        ({"type": "task", "title": "Threat model", "description": "web form"}, "security-expert"),
         ({"type": "task", "title": "Unknown work"}, "software-architect"),
     ],
 )

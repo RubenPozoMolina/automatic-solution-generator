@@ -4,7 +4,7 @@ description: Run tests, browsers, builds and application servers exclusively ins
 license: MIT
 compatibility: opencode
 metadata:
-  audience: backend-developer, database-expert, web-developer, qa-automation, qa-manual, devops-engineer
+  audience: backend-developer, database-expert, security-expert, web-developer, qa-automation, qa-manual, devops-engineer
   workflow: testing
   opencode/slash: "true"
   opencode/autoinvoke: "true"
@@ -76,6 +76,12 @@ Notes:
 - Use `-v "$PROJECT_DIR":/work` (read-write) only when the tool must write inside the project
   (for example `node_modules`); prefer a `tmpfs` or copying into the container otherwise.
 - Chromium inside the container is launched with `--no-sandbox`; the container is the sandbox.
+- The permission rules deny, for `docker run` and `docker create`: `--privileged`, `--device`,
+  `--security-opt ...unconfined`, host namespaces (`--network`, `--net`, `--pid`, `--ipc`, `--uts`,
+  `--userns` set to `host`, also with `=`), dangerous `--cap-add` values (`ALL`, `SYS_ADMIN`,
+  `SYS_PTRACE`, `SYS_MODULE`, `BPF` and similar), the Docker socket, and bind mounts from absolute
+  paths, `~`, `$HOME` or `..`. Mount only through a variable or `$(pwd)` pointing inside the project,
+  and use named volumes or `--tmpfs` for everything else.
 - Pass `--ipc=host` is **not** needed: `--shm-size 1g` is enough and keeps isolation.
 - Give containers a `--name` that includes the ticket ID so you can find and remove them.
 

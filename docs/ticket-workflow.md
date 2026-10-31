@@ -131,6 +131,7 @@ different from itself. The selection order is:
 2. **If the implementer is `software-architect`:** the most senior peer in the same domain:
    - `backend-developer` for backend/API work
    - `database-expert` for database/schema work
+   - `security-expert` for security reviews, vulnerability assessments and hardening
    - `web-developer` for frontend/UI work
    - `devops-engineer` for infrastructure/CI/CD work
 3. **If the ticket is test tooling or test framework work:** `qa-automation`.

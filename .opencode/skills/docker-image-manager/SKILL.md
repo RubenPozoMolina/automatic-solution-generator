@@ -309,7 +309,7 @@ docker build -t my-app:dev .
 docker run -d \
   -p 3000:3000 \
   -v $(pwd):/app \
-  -v /app/node_modules \
+  -v my-app-node-modules:/app/node_modules \
   -e NODE_ENV=development \
   -e WATCH_MODE=true \
   my-app:dev

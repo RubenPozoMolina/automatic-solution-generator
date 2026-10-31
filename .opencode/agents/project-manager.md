@@ -94,6 +94,7 @@ Analyze available agents and assign tasks appropriately:
 - `software-architect` - Architecture, technical decisions
 - `backend-developer` - Backend implementation, APIs, business logic
 - `database-expert` - Data modeling, PostgreSQL integration (schema import/export, DDL, migrations)
+- `security-expert` - Threat modeling, vulnerability assessment, security testing in containers, DevSecOps
 - `web-developer` or `frontend-developer` - UI, client-side code
 - `devops-engineer` - Infrastructure, CI/CD, deployment
 - `qa-automation` - Automated testing, test frameworks

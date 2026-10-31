@@ -23,6 +23,11 @@ DEFAULT_MAX_RETRIES_PER_TICKET = 3
 DEFAULT_MAX_STATUS_HISTORY = 10
 
 ASSIGNEE_KEYWORDS = (
+    ("security-expert", (
+        "vulnerabilit", "penetration test", "pentest", "threat model", "owasp",
+        "security audit", "security scan", "security review", "security hardening",
+        "sql injection", "xss", "csrf", "cve-",
+    )),
     ("database-expert", (
         "postgres", "ddl", "introspect", "information_schema", "pg_catalog",
         "database connection", "connection string", "schema import", "schema export",
