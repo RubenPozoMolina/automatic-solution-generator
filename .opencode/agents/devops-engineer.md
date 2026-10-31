@@ -158,3 +158,24 @@ When the orchestrator sends you a ticket, its prompt is the source of truth:
    transition and records the history.
 
 Results for your phase: `completed` when the implementation and its self-tests are done, `blocked` when an external dependency prevents progress (create the blocker ticket and add it to `dependencies`).
+
+
+## Container-Only Testing (mandatory)
+
+Load the `docker-test-runner` skill before running any test, build or server.
+
+- Run every test, linter, build, browser and application server **inside Docker containers**.
+  Never run `npm test`, `pytest`, `npx playwright`, `python -m http.server`, a browser or any
+  other project code directly on the host: the host is not an isolated environment and may not
+  have the expected runtime or browser.
+- Never use `--privileged`, `--network host`, or mount the Docker socket or the home directory.
+- You own the containerized test infrastructure: pinned base images, `Dockerfile`/
+  `docker-compose.test.yml`, non-root users, dropped capabilities, and the "Running the tests"
+  section of the README, so every other agent can run the tests the same way.
+- Record the `docker` command and image tag you used in `resultEvidence`.
+
+## Version Control (trunk-based development)
+
+When the prompt names a repository, load the `trunk-based-development` skill: commit small
+changes with a `TICKET-ID:` prefix to the trunk, `git pull --rebase`, push, and list the commit
+hashes in `resultEvidence`. Never push code whose containerized tests fail.

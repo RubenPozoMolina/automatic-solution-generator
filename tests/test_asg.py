@@ -262,6 +262,24 @@ def test_run_sprints_raises_when_no_backlog_remains_and_tickets_are_open(generat
         generator._run_sprints()
 
 
+@pytest.mark.parametrize("parent_field", ["parent", "parentId"])
+def test_run_sprints_closes_epic_whose_children_are_done(generator, parent_field):
+    write_ticket(
+        generator.get_tasks_path(),
+        {"id": "EPIC-001", "type": "epic", "status": "backlog"}
+    )
+    write_ticket(
+        generator.get_tasks_path(),
+        {"id": "STORY-001", "type": "story", "status": "done", parent_field: "EPIC-001"}
+    )
+    generator.process = MagicMock()
+
+    generator._run_sprints()
+
+    assert read_ticket(generator, "EPIC-001")["status"] == "done"
+    generator.process.assert_not_called()
+
+
 def test_plan_sprint_skips_project_manager_without_capacity(generator):
     generator.sprint_planner.tasks_per_sprint = 1
     write_ticket(generator.get_tasks_path(), {"id": "TASK-001", "status": "in-progress"})
@@ -630,3 +648,36 @@ def test_generator_configures_max_status_history():
         gen = AutomaticSolutionGenerator(config, logger)
         assert gen.max_status_history == 5
         assert gen.ticket_workflow.max_status_history == 5
+
+
+def test_ticket_prompt_includes_repository_instructions_when_configured(
+    tmp_path, logger, config
+):
+    config["repository"] = "git@example.com:team/app.git"
+    generator = AutomaticSolutionGenerator(config, logger)
+    ticket = {"id": "TASK-001", "status": "to-do", "filepath": "/tmp/TASK-001.json"}
+
+    prompt = generator._build_ticket_prompt(ticket, 0)
+
+    assert "git@example.com:team/app.git" in prompt
+    assert "trunk-based-development" in prompt
+
+
+def test_ticket_prompt_omits_repository_instructions_without_repository(generator):
+    ticket = {"id": "TASK-001", "status": "to-do", "filepath": "/tmp/TASK-001.json"}
+
+    assert "trunk-based-development" not in generator._build_ticket_prompt(ticket, 0)
+
+
+def test_completed_ticket_phase_is_published_to_the_repository(generator):
+    write_ticket(
+        generator.get_tasks_path(),
+        {"id": "TASK-001", "status": "to-do", "sprint": 0, "assignee": "web-developer"}
+    )
+    generator.process = MagicMock(side_effect=fake_process(generator, []))
+    generator.project_repository = MagicMock()
+    generator.project_repository.get_agent_instructions.return_value = ""
+
+    assert generator._advance_sprint_tickets(0) is True
+
+    generator.project_repository.publish.assert_called_once_with("TASK-001: to-do -> in-review")

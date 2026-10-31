@@ -14,6 +14,8 @@ from src.ticket_status import (
 
 DEFAULT_REVIEWER = "software-architect"
 DEFAULT_QA = "qa-automation"
+VISUAL_QA = "qa-manual"
+UI_IMPLEMENTERS = frozenset({"web-developer", "ui-designer"})
 DEFAULT_IMPLEMENTER = "software-architect"
 EPIC_OWNER = "product-owner"
 PROJECT_MANAGER = "project-manager"
@@ -21,6 +23,10 @@ DEFAULT_MAX_RETRIES_PER_TICKET = 3
 DEFAULT_MAX_STATUS_HISTORY = 10
 
 ASSIGNEE_KEYWORDS = (
+    ("database-expert", (
+        "postgres", "ddl", "introspect", "information_schema", "pg_catalog",
+        "database connection", "connection string", "schema import", "schema export",
+    )),
     ("web-developer", (
         "frontend", "front-end", "ui", "web", "react", "component",
         "css", "html", "svg", "canvas", "browser", "localstorage",
@@ -56,6 +62,15 @@ BLOCKING_RESULTS = frozenset({RESULT_BLOCKED})
 REWORK_RESULTS = frozenset({RESULT_CHANGES_REQUESTED, RESULT_FAILED})
 KNOWN_RESULTS = COMPLETED_RESULTS | BLOCKING_RESULTS | REWORK_RESULTS
 IMPLEMENTATION_STATUSES = frozenset({STATUS_TO_DO, STATUS_IN_PROGRESS})
+CONTAINER_TESTING_INSTRUCTION = (
+    "Run every test, browser, build and application server inside Docker containers "
+    "(docker-test-runner skill); never run them directly on the host."
+)
+VISUAL_TESTING_INSTRUCTION = (
+    "Follow the visual-qa skill: exercise the real UI in a containerized browser, "
+    "capture screenshots, check that every field and control is fully visible and that "
+    "interactions (for example relationships between tables) work end to end."
+)
 RESULT_INSTRUCTIONS = (
     "write a 'result' field in the ticket JSON "
     "(completed, blocked, changes-requested, failed, passed, passed-with-skips, "
@@ -108,10 +123,18 @@ class TicketWorkflow:
         if status == STATUS_IN_REVIEW:
             return str(ticket.get("reviewedBy") or DEFAULT_REVIEWER)
         if status == STATUS_IN_TESTING:
-            return str(ticket.get("testedBy") or DEFAULT_QA)
+            return self.infer_tester(ticket)
         if status in (STATUS_TO_DO, STATUS_IN_PROGRESS, STATUS_BLOCKED):
             return self.infer_assignee(ticket)
         return None
+
+    @staticmethod
+    def infer_tester(ticket: dict[str, Any]) -> str:
+        if ticket.get("testedBy"):
+            return str(ticket["testedBy"])
+        if ticket.get("implementedBy") in UI_IMPLEMENTERS:
+            return VISUAL_QA
+        return DEFAULT_QA
 
     def infer_assignee(self, ticket: dict[str, Any]) -> str:
         ticket_type = str(ticket.get("type", "")).strip().lower()
@@ -134,10 +157,18 @@ class TicketWorkflow:
             f"Read {ticket.get('filepath')} and follow the ticket-workflow skill. "
             f"Current status: {status}. Assignee: {ticket.get('assignee')}. "
             f"{instruction} "
+            f"{CONTAINER_TESTING_INSTRUCTION} "
+            f"{self._build_agent_specific_instruction(ticket)}"
             "Perform only the work of the current phase in this sprint; the next phase "
             "will happen in a later sprint. "
             f"When your phase is complete, {RESULT_INSTRUCTIONS}"
         )
+
+    @staticmethod
+    def _build_agent_specific_instruction(ticket: dict[str, Any]) -> str:
+        if ticket.get("assignee") == VISUAL_QA:
+            return f"{VISUAL_TESTING_INSTRUCTION} "
+        return ""
 
     @staticmethod
     def build_result_reminder(ticket: dict[str, Any]) -> str:
@@ -314,7 +345,7 @@ class TicketWorkflow:
         if status == STATUS_IN_REVIEW:
             return str(ticket.get("reviewedBy") or DEFAULT_REVIEWER)
         if status == STATUS_IN_TESTING:
-            return str(ticket.get("testedBy") or DEFAULT_QA)
+            return self.infer_tester(ticket)
         if status in (STATUS_TO_DO, STATUS_IN_PROGRESS, STATUS_BLOCKED):
             return str(
                 ticket.get("implementedBy")

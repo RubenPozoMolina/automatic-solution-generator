@@ -78,6 +78,18 @@ Reserve your last steps for writing `result` and `resultEvidence`.
 | T11 | any non-done | `backlog` | `project-manager` / `product-owner` | none | sprint rollback or deprioritization |
 | T12 | `done` | `in-progress` | `project-manager` | original implementer | regression / invalidated evidence |
 
+## Tester Assignment (`in-testing`)
+
+In orchestrated runs the orchestrator picks the QA agent when the ticket enters `in-testing`:
+
+1. `testedBy` when the ticket sets it.
+2. `qa-manual` (manual and visual QA, `visual-qa` skill) when the ticket was implemented by
+   `web-developer` or `ui-designer`.
+3. `qa-automation` otherwise.
+
+All QA runs happen **inside Docker containers** (`docker-test-runner` skill); a QA agent never
+runs tests, servers or browsers on the host.
+
 ## Reviewer Assignment (`in-review`)
 
 The implementer must reassign to a reviewer different from itself:

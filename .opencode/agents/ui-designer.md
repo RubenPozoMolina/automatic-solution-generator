@@ -353,3 +353,19 @@ When the orchestrator sends you a ticket, its prompt is the source of truth:
    transition and records the history.
 
 Results for your phase: `completed` when the implementation and its self-tests are done, `blocked` when an external dependency prevents progress (create the blocker ticket and add it to `dependencies`).
+
+
+## Container-Only Testing (mandatory)
+
+Load the `docker-test-runner` skill before running any test, build or server.
+
+- Run every test, build, browser and application server **inside Docker containers**. Never run
+  project code or a browser directly on the host.
+- Components must show all their content: no clipped fields, no scrollbars inside components.
+  `qa-manual` verifies this in a containerized browser (`visual-qa` skill).
+
+## Version Control (trunk-based development)
+
+When the prompt names a repository, load the `trunk-based-development` skill: commit small changes
+with a `TICKET-ID:` prefix to the trunk, `git pull --rebase`, push, and list the commit hashes in
+`resultEvidence`.

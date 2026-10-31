@@ -4,6 +4,7 @@ import os
 from typing import Any, Callable, Iterable, Optional, Union
 
 from src.errors import SessionTimeoutError, SolutionGenerationError
+from src.project_repository import DEFAULT_TRUNK_BRANCH, ProjectRepository
 from src.sprint_planner import SprintPlanner
 from src.sprint_report import SprintReport
 from src.ticket_repository import TicketRepository
@@ -45,6 +46,12 @@ class AutomaticSolutionGenerator:
         self.agents: dict[str, Any] = {}
         self.project_path = os.path.abspath(str(config["project_path"]))
         self.ticket_repository = TicketRepository(self.get_tasks_path(), logger)
+        self.project_repository = ProjectRepository(
+            self.project_path,
+            config.get("repository"),
+            logger,
+            str(config.get("repository_branch", DEFAULT_TRUNK_BRANCH))
+        )
         self.max_retries_per_ticket = int(
             config.get(
                 "max_retries_per_ticket",
@@ -245,6 +252,7 @@ class AutomaticSolutionGenerator:
         config = self.opencode_api.get_config()
         self.logger.save_dict("config", config)
         os.makedirs(self.project_path, exist_ok=True)
+        self.project_repository.prepare()
         self.save_opencode_openapi("openapi/opencode.json")
         self.agents = self.opencode_api.get_agents()
 
@@ -383,7 +391,7 @@ class AutomaticSolutionGenerator:
     ) -> dict[str, list[dict[str, Any]]]:
         children_by_parent: dict[str, list[dict[str, Any]]] = {}
         for ticket in tickets:
-            parent = ticket.get("parent")
+            parent = ticket.get("parent") or ticket.get("parentId")
             if parent:
                 children_by_parent.setdefault(str(parent), []).append(ticket)
         return children_by_parent
@@ -474,7 +482,7 @@ class AutomaticSolutionGenerator:
             self._process_until(
                 agent,
                 sprint,
-                self.ticket_workflow.build_prompt(ticket, sprint),
+                self._build_ticket_prompt(ticket, sprint),
                 [ticket["filepath"]],
                 lambda: self._ticket_has_result(ticket),
                 lambda: self._build_ticket_reminder(ticket),
@@ -490,7 +498,20 @@ class AutomaticSolutionGenerator:
         updated_ticket = self._reload_ticket(ticket)
         if updated_ticket is None:
             return False
-        return self._save_ticket_transition(updated_ticket, sprint, previous_status)
+        moved = self._save_ticket_transition(updated_ticket, sprint, previous_status)
+        if moved:
+            self.project_repository.publish(
+                f"{updated_ticket.get('id', updated_ticket.get('filename'))}: "
+                f"{previous_status} -> {updated_ticket.get('status')}"
+            )
+        return moved
+
+    def _build_ticket_prompt(self, ticket: dict[str, Any], sprint: int) -> str:
+        prompt = self.ticket_workflow.build_prompt(ticket, sprint)
+        repository_instructions = self.project_repository.get_agent_instructions()
+        if not repository_instructions:
+            return prompt
+        return f"{prompt} {repository_instructions}"
 
     def _persist_inferred_assignee(
         self,

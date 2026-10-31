@@ -39,6 +39,8 @@ def build_ticket(**overrides):
         ({"type": "task", "title": "Create API", "description": "database server"}, "backend-developer"),
         ({"type": "task", "title": "Add pipeline", "description": "docker deploy"}, "devops-engineer"),
         ({"type": "task", "title": "Write tests", "description": "playwright coverage"}, "qa-automation"),
+        ({"type": "task", "title": "Import PostgreSQL schema", "description": "web form"}, "database-expert"),
+        ({"type": "task", "title": "Generate DDL", "description": "export diagram"}, "database-expert"),
         ({"type": "task", "title": "Unknown work"}, "software-architect"),
     ],
 )
@@ -256,3 +258,42 @@ def test_retry_count_persists_even_when_history_is_trimmed():
     # Therefore, further unblocks are disallowed by retry limit
     ticket["status"] = STATUS_BLOCKED
     assert workflow.can_unblock(ticket, {"TASK-999"}) is False
+
+
+def test_prompt_requires_container_testing(workflow):
+    prompt = workflow.build_prompt(build_ticket(filepath="/tmp/TASK-001.json"), 0)
+
+    assert "inside Docker containers" in prompt
+    assert "docker-test-runner" in prompt
+    assert "visual-qa" not in prompt
+
+
+def test_prompt_for_visual_qa_requires_visual_testing(workflow):
+    ticket = build_ticket(
+        filepath="/tmp/TASK-001.json", status=STATUS_IN_TESTING, assignee="qa-manual"
+    )
+
+    prompt = workflow.build_prompt(ticket, 2)
+
+    assert "visual-qa skill" in prompt
+    assert "fully visible" in prompt
+
+
+@pytest.mark.parametrize(
+    "ticket, expected_tester",
+    [
+        ({"implementedBy": "web-developer"}, "qa-manual"),
+        ({"implementedBy": "ui-designer"}, "qa-manual"),
+        ({"implementedBy": "backend-developer"}, "qa-automation"),
+        ({"implementedBy": "web-developer", "testedBy": "qa-automation"}, "qa-automation"),
+        ({}, "qa-automation"),
+    ],
+)
+def test_ui_work_is_tested_by_the_visual_qa_agent(workflow, ticket, expected_tester):
+    ticket = build_ticket(
+        status=STATUS_IN_REVIEW, assignee="software-architect", result="completed", **ticket
+    )
+
+    assert workflow.apply_completion(ticket, STATUS_IN_REVIEW) is True
+    assert ticket["status"] == STATUS_IN_TESTING
+    assert ticket["assignee"] == expected_tester

@@ -92,7 +92,8 @@ Analyze available agents and assign tasks appropriately:
 
 **Development Roles:**
 - `software-architect` - Architecture, technical decisions
-- `backend-developer` - Backend implementation, APIs, databases
+- `backend-developer` - Backend implementation, APIs, business logic
+- `database-expert` - Data modeling, PostgreSQL integration (schema import/export, DDL, migrations)
 - `web-developer` or `frontend-developer` - UI, client-side code
 - `devops-engineer` - Infrastructure, CI/CD, deployment
 - `qa-automation` - Automated testing, test frameworks

@@ -190,3 +190,25 @@ When the orchestrator sends you a ticket, its prompt is the source of truth:
    transition and records the history.
 
 Results for your phase: `passed` (or `passed-with-skips`) when every executable acceptance criterion is verified (the orchestrator then closes the ticket; note any platform-incompatible criteria as `skipped-unsupported-platform` in `resultEvidence`), `failed` when any executable criterion fails (describe the failure in `resultEvidence`), `blocked` when an external blocker or missing dependency prevents testing.
+
+
+## Container-Only Testing (mandatory)
+
+Load the `docker-test-runner` skill before running any test, build or server.
+
+- Run every test, linter, build, browser and application server **inside Docker containers**.
+  Never run `npm test`, `pytest`, `npx playwright`, `python -m http.server`, a browser or any
+  other project code directly on the host: the host is not an isolated environment and may not
+  have the expected runtime or browser.
+- Use the browsers that ship with the pinned Playwright image; never assume a host browser.
+- Never use `--privileged`, `--network host`, or mount the Docker socket or the home directory.
+- If the containerized test setup is missing or broken, follow the *Blocked Protocol* of the
+  `docker-image-manager` skill (blocker ticket for `devops-engineer`); do **not** fall back to
+  running tests on the host.
+- Record the `docker` command, image tag and test summary in `resultEvidence`.
+
+## Version Control (trunk-based development)
+
+When the prompt names a repository, load the `trunk-based-development` skill: commit new or
+changed tests in small commits with a `TICKET-ID:` prefix to the trunk, `git pull --rebase`, push,
+and list the commit hashes in `resultEvidence`.

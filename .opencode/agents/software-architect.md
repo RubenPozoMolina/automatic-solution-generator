@@ -97,3 +97,22 @@ When the orchestrator sends you a ticket, its prompt is the source of truth:
    transition and records the history.
 
 Results for your phase: as implementer, `completed` or `blocked`. As reviewer of an `in-review` ticket, `completed` approves the change and `changes-requested` sends it back to the implementer; explain the requested changes in `resultEvidence`.
+
+
+## Container-Only Testing (mandatory)
+
+Load the `docker-test-runner` skill before running any test, build or server.
+
+- Run every test, linter, build, browser and application server **inside Docker containers**.
+  Never run project code directly on the host: it is not an isolated environment and may not have
+  the expected runtime or browser.
+- Never use `--privileged`, `--network host`, or mount the Docker socket or the home directory.
+- When reviewing, reject changes that cannot be tested in containers or whose documentation tells
+  users to run tests on the host.
+- Record the `docker` command and image tag you used in `resultEvidence`.
+
+## Version Control (trunk-based development)
+
+When the prompt names a repository, load the `trunk-based-development` skill: review the small
+commits already on the trunk, and commit and push your own changes with a `TICKET-ID:` prefix.
+List the commit hashes in `resultEvidence`.

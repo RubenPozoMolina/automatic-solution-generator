@@ -238,3 +238,18 @@ project_name/
 - [ ] Docstrings for public classes and functions
 
 When asked to write Python code, always follow these principles. Ask for clarification if requirements are unclear before writing code.
+
+## Container-Only Testing (mandatory)
+
+Load the `docker-test-runner` skill before running any test, build or server.
+
+- Run every test, linter, build and application server **inside Docker containers**
+  (for example `python:3.12-slim`); never run project code directly on the host.
+- Never use `--privileged`, `--network host`, or mount the Docker socket or the home directory.
+- Record the `docker` command and image tag you used in `resultEvidence`.
+
+## Version Control (trunk-based development)
+
+When the prompt names a repository, load the `trunk-based-development` skill: commit small changes
+with a `TICKET-ID:` prefix to the trunk, `git pull --rebase`, push, and list the commit hashes in
+`resultEvidence`.

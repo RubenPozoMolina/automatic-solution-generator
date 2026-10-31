@@ -25,6 +25,7 @@
 **Describe the problem you're trying to solve:**
 
 - The problem we have is that we need a tool that allows us to import and export database models in an agnostic way.
+- Models must be exchangeable both through JSON files and directly with a PostgreSQL database.
 
 ---
 
@@ -50,7 +51,7 @@
 
 **Can you describe the main features you envision for this product?**
 
-- Graphic design. Import and export database models.
+- Graphic design. Import and export database models, from and to JSON files and from and to PostgreSQL databases.
 
 ---
 
@@ -59,6 +60,10 @@
 **What can the user do with the application?**
 
 - The user can create and edit database diagrams. They can also save in JSON format and import them from the same format.
+- The user can connect to a PostgreSQL database by providing host, port, database, user and password.
+- The user can import an existing PostgreSQL schema (tables, columns, data types, primary keys, foreign keys, unique constraints and indexes) and see it as a diagram.
+- The user can export a diagram to a PostgreSQL database, creating the tables, keys and relationships in a chosen schema. The application must show the SQL (DDL) it is going to run and ask for confirmation before changing the database; existing objects are never dropped.
+- Database credentials are used only for the current session: they are never stored or written to the JSON files.
 
 ---
 
@@ -67,10 +72,11 @@
 **Are there specific features that are essential vs. desirable?**
 
 - **Must-have (Essential):**
-- Graphic design. Import and export database models.
+- Graphic design. Import and export database models in JSON format.
+- Connection to PostgreSQL to import existing schemas as diagrams and to export diagrams as schemas.
   
 - **Nice-to-have (Desirable):**
-  Connection with known databases to create empty schemas. Also import from existent database
+  Connection with other known databases (MySQL, SQL Server, Oracle...). PostgreSQL is the only database required for now.
 
 ---
 
@@ -110,7 +116,9 @@
 
 - **Technology preferences:**
   
-- Application is web does not need to have a backend
+- Application is web. Working with JSON files does not need a backend. Connecting to PostgreSQL does: a browser cannot open database connections, so a small backend service is allowed and required for this feature only.
+- The backend must be lightweight, run locally and expose a minimal API (test connection, read schema, apply schema). It talks to PostgreSQL 14 or later.
+- Database design, schema introspection and DDL generation are handled by a database expert.
 - Graphic design. Import and export database models.
 - We want to use open-source technologies.
 - We need a light web framework.
@@ -148,7 +156,7 @@
 All questions completed. Key takeaways:
 
 - **Product:** Database diagram web application
-- **Core Features:** Visual graphic design, import/export database models (JSON format)
+- **Core Features:** Visual graphic design, import/export database models (JSON format and PostgreSQL)
 - **User Base:** Public application, single role (no auth required)
-- **Tech Stack:** Open-source, lightweight web framework, no backend required
-- **Nice-to-have:** Direct database connections for schema creation/import
+- **Tech Stack:** Open-source, lightweight web framework, small local backend only for the PostgreSQL connection
+- **Nice-to-have:** Connections to other databases besides PostgreSQL
